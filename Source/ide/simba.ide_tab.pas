@@ -11,7 +11,8 @@ interface
 
 uses
   Classes, SysUtils, ComCtrls, Controls, Dialogs, Process, SynEdit, SynEditTypes,
-  simba.base, simba.ide_editor, simba.form_output, simba.component_tabcontrol;
+  simba.base, simba.ide_editor, simba.form_output, simba.component_tabcontrol,
+  simba.ide_output_components;
 
 type
   TSimbaScriptTab = class;
@@ -87,7 +88,7 @@ type
 
     FScriptRunner: TSimbaScriptTabRunner;
 
-    FOutputBox: TSimbaOutputBox;
+    FOutputBox: TOutputListComponent;
 
     procedure LoadDefaultScript;
     procedure FindDeclarationAtCaretASync(Data: PtrInt);
@@ -106,7 +107,7 @@ type
     function GetScriptChanged: Boolean;
   public
     property UID: Integer read FUID;
-    property OutputBox: TSimbaOutputBox read FOutputBox;
+    property OutputBox: TOutputListComponent read FOutputBox;
 
     property ScriptTitle: String read FScriptTitle;
     property ScriptFileName: String read FScriptFileName;
@@ -162,7 +163,8 @@ var
     begin
       Count := FProcess.Output.Read(ReadBuffer[1], Length(ReadBuffer));
       if (Count > 0) then
-        RemainingBuffer := FTab.OutputBox.Add(RemainingBuffer + Copy(ReadBuffer, 1, Count));
+        FTab.OutputBox.Add(Copy(ReadBuffer, 1, Count)); // todo remove copy
+      //RemainingBuffer := FTab.OutputBox.Add(RemainingBuffer + Copy(ReadBuffer, 1, Count));
     end;
   end;
 
@@ -257,7 +259,7 @@ end;
 
 procedure TSimbaScriptTabRunner.ShowOutputBox;
 begin
-  FTab.OutputBox.MakeVisible();
+  //FTab.OutputBox.MakeVisible();
 end;
 
 procedure TSimbaScriptTabRunner.Run(Args: TStringArray);
@@ -356,8 +358,8 @@ procedure TSimbaScriptTab.TextChanged;
 begin
   inherited TextChanged();
 
-  if Assigned(FOutputBox) then
-    FOutputBox.TabTitle := Caption;
+  //if Assigned(FOutputBox) then
+  //  FOutputBox.TabTitle := Caption;
 end;
 
 procedure TSimbaScriptTab.Notification(AComponent: TComponent; Operation: TOperation);
@@ -638,7 +640,7 @@ begin
   FEditor.PopupMenu := TSimbaTabPopupMenu.Create(Self);
 
   FOutputBox := SimbaOutputForm.AddScriptOutput('Untitled');
-  FOutputBox.TabImageIndex := IMG_STOP;
+  //FOutputBox.TabImageIndex := IMG_STOP;
 
   LoadDefaultScript();
 
@@ -651,8 +653,8 @@ destructor TSimbaScriptTab.Destroy;
 begin
   Application.RemoveAsyncCalls(Self);
   SimbaIDEEvents.Notify(SimbaIDEEvent.TAB_CLOSED, Self);
-  if Assigned(SimbaOutputForm) then
-    SimbaOutputForm.RemoveTab(FOutputBox);
+  //if Assigned(SimbaOutputForm) then
+  //  SimbaOutputForm.RemoveTab(FOutputBox);
 
   inherited Destroy();
 end;

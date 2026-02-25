@@ -927,7 +927,7 @@ end;
 procedure TSimbaShapeBox.DoShapePrint(Sender: TObject);
 begin
   if CheckIndex(FListBox.ItemIndex) then
-    DebugLn([EDebugLn.FOCUS], FShapes[FListBox.ItemIndex].ToStr);
+    DebugLn(FShapes[FListBox.ItemIndex].ToStr);
 end;
 
 procedure TSimbaShapeBox.DoShapeDuplicate(Sender: TObject);
@@ -1324,7 +1324,7 @@ var
   I: Integer;
 begin
   for I := 0 to FShapes.Count - 1 do
-    DebugLn([EDebugLn.FOCUS], FShapes[I].FName + ' := [' + FShapes[I].ToStr() + '];');
+    DebugLn(FShapes[I].FName + ' := [' + FShapes[I].ToStr() + '];');
 end;
 
 procedure TSimbaShapeBox.SaveToFile(FileName: String);

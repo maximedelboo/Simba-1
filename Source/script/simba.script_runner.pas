@@ -20,7 +20,6 @@ type
     FScript: TSimbaScript;
     FCompileOnly: Boolean;
 
-    procedure DoDebugLn(Flags: EDebugLnFlags; Text: String);
     procedure DoCompilerHint(Sender: TLapeCompilerBase; Hint: lpString);
 
     procedure DoApplicationTerminate(Sender: TObject);
@@ -41,22 +40,9 @@ uses
   simba.env, simba.fs, simba.datetime, simba.script_communication, simba.vartype_string,
   simba.baseclass;
 
-procedure TSimbaScriptRunner.DoDebugLn(Flags: EDebugLnFlags; Text: String);
-begin
-  if (SimbaProcessType = ESimbaProcessType.SCRIPT_WITH_COMMUNICATION) then // Only add flags if we have communication with simba to use them
-    DebugLn(Flags, Text)
-  else
-  begin
-    if Application.HasOption('silent') and (Flags * [EDebugLn.YELLOW, EDebugLn.GREEN] <> []) then
-      Exit;
-
-    DebugLn(Text);
-  end;
-end;
-
 procedure TSimbaScriptRunner.DoCompilerHint(Sender: TLapeCompilerBase; Hint: lpString);
 begin
-  DoDebugLn([EDebugLn.YELLOW], Hint);
+  DebugLn(Hint);
 end;
 
 procedure TSimbaScriptRunner.DoApplicationTerminate(Sender: TObject);
@@ -83,15 +69,15 @@ var
 begin
   ExitCode := 1;
 
-  DoDebugLn([EDebugLn.RED, EDebugLn.FOCUS], E.Message);
+  DebugLn(E.Message);
 
   if (E is lpException) then
     with lpException(E) do
     begin
       for Line in StackTrace.Split(LineEnding) do
-        DoDebugLn([EDebugLn.RED, EDebugLn.FOCUS], Line);
+        DebugLn(Line);
       for Line in Hint.Split(LineEnding) do
-        DoDebugLn([EDebugLn.YELLOW, EDebugLn.FOCUS], Line);
+        DebugLn(Line);
 
       if (FScript.SimbaCommunication <> nil) then
         FScript.SimbaCommunication.ScriptError(Message, DocPos.Line, DocPos.Col, DocPos.FileName);
@@ -105,7 +91,11 @@ begin
 
     try
       if FScript.Compile() then
-        DoDebugLn([EDebugLn.GREEN], 'Succesfully compiled in %.2f milliseconds.'.Format([FScript.CompileTime]));
+      begin
+        SetDebugLnColor($FF);
+        DebugLn('Succesfully compiled in %.2f milliseconds.'.Format([FScript.CompileTime]));
+
+      end;
     except
       on E: Exception do
       begin
@@ -119,9 +109,9 @@ begin
       FScript.Run();
 
       if (FScript.RunningTime < 10000) then
-        DoDebugLn([EDebugLn.GREEN], 'Succesfully executed in %.2f milliseconds.'.Format([FScript.RunningTime]))
+        DebugLn('Succesfully executed in %.2f milliseconds.'.Format([FScript.RunningTime]))
       else
-        DoDebugLn([EDebugLn.GREEN], 'Succesfully executed in %s.'.Format([FormatMilliseconds(Round(FScript.RunningTime), '\[hh:mm:ss\]')]));
+        DebugLn('Succesfully executed in %s.'.Format([FormatMilliseconds(Round(FScript.RunningTime), '\[hh:mm:ss\]')]));
     except
       on E: Exception do
         DoError(E);

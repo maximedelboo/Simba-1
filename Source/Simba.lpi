@@ -478,7 +478,7 @@
         <PackageName Value="LCL"/>
       </Item5>
     </RequiredPackages>
-    <Units Count="89">
+    <Units Count="90">
       <Unit0>
         <Filename Value="Simba.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -886,6 +886,10 @@
         <Filename Value="simba.multiprocessing.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit88>
+      <Unit89>
+        <Filename Value="ide/simba.ide_output_components.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit89>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

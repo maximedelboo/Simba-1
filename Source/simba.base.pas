@@ -276,25 +276,16 @@ type
   PBox = ^TBox;
   PBoxArray = ^TBoxArray;
 
-{$PUSH}
-{$SCOPEDENUMS ON}
-type
-  EDebugLn = (CLEAR, YELLOW, RED, GREEN, FOCUS);
-  EDebugLnFlags = set of EDebugLn;
-{$POP}
-
 var
   OnDebugLn: procedure(const S: String) of object = nil;
+
+procedure SetDebugLnColor(C: TColor);
+procedure ResetDebugLnColor();
 
 procedure Debug(const Msg: String); overload;
 procedure Debug(const Msg: String; Args: array of const); overload;
 procedure DebugLn(const Msg: String); overload;
 procedure DebugLn(const Msg: String; Args: array of const); overload;
-procedure DebugLn(const Flags: EDebugLnFlags; const Msg: String); overload;
-procedure DebugLn(const Flags: EDebugLnFlags; const Msg: String; Args: array of const); overload;
-
-function FlagsToString(const Flags: EDebugLnFlags): String;
-function FlagsFromString(var Str: String): EDebugLnFlags;
 
 function InRange(const AValue, AMin, AMax: Integer): Boolean; inline; overload;
 function InRange(const AValue, AMin, AMax: Int64): Boolean; inline; overload;
@@ -373,6 +364,46 @@ begin
   Result := GetEnumName(TypeInfo(_T), UInt32(Param));
 end;
 
+procedure SetDebugLnColor(C: TColor);
+type
+  PControlCode = ^TControlCode;
+  TControlCode = packed record
+    Sig: array[0..1] of Char;
+    Typ: UInt8;
+    Data: UInt32;
+  end;
+var
+  ControlCode: TControlCode;
+begin
+  ControlCode.Sig[0] := #0;
+  ControlCode.Sig[1] := #0;
+  ControlCode.Typ := 1;
+  ControlCode.Data := C;
+  {$I-}
+  FileWrite(StdOutputHandle, ControlCode, SizeOf(TControlCode));
+  {$I+}
+end;
+
+procedure ResetDebugLnColor();
+type
+  PControlCode = ^TControlCode;
+  TControlCode = packed record
+    Sig: array[0..1] of Char;
+    Typ: UInt8;
+    Data: UInt32;
+  end;
+var
+  ControlCode: TControlCode;
+begin
+  ControlCode.Sig[0] := #0;
+  ControlCode.Sig[1] := #0;
+  ControlCode.Typ := 2;
+  ControlCode.Data := C;
+  {$I-}
+  FileWrite(StdOutputHandle, ControlCode, SizeOf(TControlCode));
+  {$I+}
+end;
+
 procedure Debug(const Msg: String);
 begin
   if Assigned(OnDebugLn) then
@@ -410,16 +441,6 @@ begin
   DebugLn(Format(Msg, Args));
 end;
 
-procedure DebugLn(const Flags: EDebugLnFlags; const Msg: String);
-begin
-  DebugLn(FlagsToString(Flags) + Msg);
-end;
-
-procedure DebugLn(const Flags: EDebugLnFlags; const Msg: String; Args: array of const);
-begin
-  DebugLn(FlagsToString(Flags) + Format(Msg, Args));
-end;
-
 procedure SimbaException(Message: String; Args: array of const);
 begin
   raise ESimbaException.CreateFmt(Message, Args);
@@ -428,50 +449,6 @@ end;
 procedure SimbaException(Message: String);
 begin
   raise ESimbaException.Create(Message);
-end;
-
-const
-  DebugLnFlagsHeader       = String(#0#0);
-  DebugLnFlagsHeaderLength = Length(DebugLnFlagsHeader) + 6;
-
-function FlagsToString(const Flags: EDebugLnFlags): String; inline;
-begin
-  Result := DebugLnFlagsHeader + IntToHex(Integer(Flags), 6);
-end;
-
-function FlagsFromString(var Str: String): EDebugLnFlags;
-
-  function HexToInt(P: PChar): Integer; inline;
-  var
-    N, I: Integer;
-    Val: Char;
-  begin
-    Result := 0;
-
-    for I := 1 to 6 do
-    begin
-      Val := P^;
-      case Val of
-        '0'..'9': N := Ord(Val) - (Ord('0'));
-        'a'..'f': N := Ord(Val) - (Ord('a') - 10);
-        'A'..'F': N := Ord(Val) - (Ord('A') - 10);
-        else
-          Exit(0);
-      end;
-      Inc(P);
-
-      Result := Result*16+N;
-    end;
-  end;
-
-begin
-  if (Length(Str) >= DebugLnFlagsHeaderLength) and (Str[1] = DebugLnFlagsHeader[1]) and (Str[2] = DebugLnFlagsHeader[2]) then
-  begin
-    Result := EDebugLnFlags(HexToInt(@Str[3]));
-
-    Delete(Str, 1, DebugLnFlagsHeaderLength);
-  end else
-    Result := [];
 end;
 
 function InRange(const AValue, AMin, AMax: Integer): Boolean;

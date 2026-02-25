@@ -165,9 +165,9 @@ begin
 
   if (Sender = FButtonRun) or (Sender = FButtonCompile) then
   begin
-    Tab.OutputBox.MakeVisible();
-    if SimbaSettings.OutputBox.ClearOnCompile.Value then
-      Tab.OutputBox.Empty();
+    //Tab.OutputBox.MakeVisible();
+    //if SimbaSettings.OutputBox.ClearOnCompile.Value then
+    //  Tab.OutputBox.Empty();
   end;
 
        if (Sender = FButtonCompile) then Tab.Compile()
@@ -181,7 +181,7 @@ end;
 
 procedure TSimbaMainToolBar.DoClickClearOutputButton(Sender: TObject);
 begin
-  SimbaOutputForm.ActiveOutputBox.Empty();
+  //SimbaOutputForm.ActiveOutputBox.Empty();
 end;
 
 procedure TSimbaMainToolBar.DoClickPackageButton(Sender: TObject);
@@ -197,7 +197,7 @@ begin
   try
     if ShowColorPicker(FWindowSelection, X, Y, Color) then
     begin
-      DebugLn([EDebugLn.FOCUS], 'Color picked: %d at (%d, %d)', [Color, X, Y]);
+      DebugLn('Color picked: %d at (%d, %d)', [Color, X, Y]);
 
       SimbaIDEEvents.Notify(SimbaIDEEvent.COLOR_PICKED, Self);
     end;
@@ -212,7 +212,7 @@ begin
   try
     FAreaSelection := ShowAreaSelector(FWindowSelection);
     with FAreaSelection do
-      DebugLn([EDebugLn.FOCUS], 'Area picked: [%d, %d, %d, %d]', [X1, Y1, X2, Y2]);
+      DebugLn('Area picked: [%d, %d, %d, %d]', [X1, Y1, X2, Y2]);
 
     SimbaIDEEvents.Notify(SimbaIDEEvent.AREA_SELECTED, Self);
   except
@@ -232,12 +232,12 @@ begin
     Path := GetProcessPath(FProcessSelection);
     Bitness := IfThen(IsProcess64Bit(FProcessSelection), '64 bit', '32 bit');
 
-    DebugLn([EDebugLn.FOCUS], 'Window Selected: %d',  [FWindowSelection]);
-    DebugLn([EDebugLn.FOCUS], ' - Dimensions: %dx%d', [FWindowSelection.GetBounds().Width - 1, FWindowSelection.GetBounds().Height - 1]);
-    DebugLn([EDebugLn.FOCUS], ' - Title: "%s"',       [FWindowSelection.GetTitle()]);
-    DebugLn([EDebugLn.FOCUS], ' - Class: "%s"',       [FWindowSelection.GetClassName()]);
-    DebugLn([EDebugLn.FOCUS], ' - PID: %d (%s)',      [FProcessSelection, Bitness]);
-    DebugLn([EDebugLn.FOCUS], ' - Executable: "%s"',  [Path]);
+    DebugLn('Window Selected: %d',  [FWindowSelection]);
+    DebugLn(' - Dimensions: %dx%d', [FWindowSelection.GetBounds().Width - 1, FWindowSelection.GetBounds().Height - 1]);
+    DebugLn(' - Title: "%s"',       [FWindowSelection.GetTitle()]);
+    DebugLn(' - Class: "%s"',       [FWindowSelection.GetClassName()]);
+    DebugLn(' - PID: %d (%s)',      [FProcessSelection, Bitness]);
+    DebugLn(' - Executable: "%s"',  [Path]);
 
     SimbaIDEEvents.Notify(SimbaIDEEvent.WINDOW_SELECTED, Self);
   except

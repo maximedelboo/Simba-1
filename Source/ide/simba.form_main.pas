@@ -879,7 +879,7 @@ end;
 
 procedure TSimbaMainForm.MenuClearOutputClick(Sender: TObject);
 begin
-  SimbaOutputForm.ActiveOutputBox.Empty();
+  //SimbaOutputForm.ActiveOutputBox.Empty();
 end;
 
 procedure TSimbaMainForm.MenuFileClick(Sender: TObject);

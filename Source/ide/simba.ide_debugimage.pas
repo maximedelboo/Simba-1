@@ -53,7 +53,7 @@ end;
 procedure TSimbaDebugMatrixForm.DoImgDoubleClick(Sender: TSimbaImageBox; X, Y: Integer);
 begin
   if (X >= 0) and (X < FMatrix.Width) and (Y >= 0) and (Y < FMatrix.Height) then
-    DebugLn([EDebugLn.FOCUS], 'Matrix[%d,%d] := %.5f', [Y, X, FMatrix[Y,X]]);
+    DebugLn('Matrix[%d,%d] := %.5f', [Y, X, FMatrix[Y,X]]);
 end;
 
 generic procedure DrawMatrix<PPixelType>(Matrix: TSingleMatrix; ColorMapType, Width, Height: Integer; Dest: PByte; DestBytesPerLine: Integer);

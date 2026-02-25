@@ -392,7 +392,7 @@ procedure TSimbaDTMEditorForm.ButtonPrintDTMClick(Sender: TObject);
 begin
   FDTMString := GetDTM().ToString();
 
-  DebugLn([EDebugLn.FOCUS], 'DTM := TDTM.CreateFromString(' + #39 + FDTMString + #39 + ');');
+  DebugLn('DTM := TDTM.CreateFromString(' + #39 + FDTMString + #39 + ');');
 end;
 
 procedure TSimbaDTMEditorForm.ListBoxSelectionChange(Sender: TObject; User: boolean);
