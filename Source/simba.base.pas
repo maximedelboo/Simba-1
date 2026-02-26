@@ -398,7 +398,7 @@ begin
   ControlCode.Sig[0] := #0;
   ControlCode.Sig[1] := #0;
   ControlCode.Typ := 2;
-  ControlCode.Data := C;
+  ControlCode.Data := 0;
   {$I-}
   FileWrite(StdOutputHandle, ControlCode, SizeOf(TControlCode));
   {$I+}

@@ -70,7 +70,7 @@ type
     FControlCodes: TOutputListComponent.TLineControlCodeArray;
     FNextIndex: SizeInt;
     FColor: TColor;
-    FSpecialAttri: TSynHighlighterAttributes;
+    FSpecialAttri: TSynHighlighterAttributesModifier;
   public
     procedure SetLine(const NewValue: String; LineNumber: Integer); override;
     procedure Next; override;
@@ -89,7 +89,7 @@ type
 implementation
 
 uses
-  simba.vartype_string;
+  simba.vartype_string, ATCanvasPrimitives, simba.component_theme;
 
 procedure TOutputListComponent.OnLineCountChange(Sender: TSynEditStrings; aIndex, aCount: Integer);
 var
@@ -295,7 +295,7 @@ constructor TOutputHighlighter.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
 
-  FSpecialAttri := TSynHighlighterAttributes.Create('special');
+  FSpecialAttri := TSynHighlighterAttributesModifier.Create('special');
   FSpecialAttri.OnChange := nil;
 
   AddAttribute(FSpecialAttri);
@@ -331,7 +331,10 @@ begin
     FTokenEnd := FControlCodes[FNextIndex].Index + 1;
     if (FTokenPos = FTokenEnd) then
     begin
-      FColor := FControlCodes[FNextIndex].Data;
+      if (FControlCodes[FNextIndex].Typ = Ord(ccBackground)) then
+        FColor := FControlCodes[FNextIndex].Data
+      else
+        FColor := -1;
 
       Inc(FNextIndex);
       if (FNextIndex <= High(FControlCodes)) then
@@ -361,7 +364,7 @@ begin
   else
   begin
     Result := FSpecialAttri;
-    Result.Background := FColor;
+    Result.Background := ColorBlend(FColor, SimbaComponentTheme.ColorBackground, 120);
   end;
 end;
 

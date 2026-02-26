@@ -92,7 +92,6 @@ begin
     try
       if FScript.Compile() then
       begin
-        SetDebugLnColor($FF);
         DebugLn('Succesfully compiled in %.2f milliseconds.'.Format([FScript.CompileTime]));
 
       end;

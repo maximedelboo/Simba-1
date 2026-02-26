@@ -1,0 +1,30 @@
+function makeColor(c: TColor): String;
+type
+  PInt32 = ^Int32;
+begin
+  SetLength(Result, 7);
+  Result[1] := #0;
+  Result[2] := #0;
+  Result[3] := #1;
+  PInt32(@Result[4])^ := c;
+end;
+
+begin
+  SetWriteColor(Colors.RED);
+  WriteLn('This is in red');
+  WriteLn('This line will continue it');
+  WriteLn('And so on');
+  ResetWriteColor();
+  WriteLn('Until the color is changed or reset');
+
+  WriteLn('Can have multiple colors on a line too');
+  Write('Nothing');
+  SetWriteColor(Colors.GREEN);
+  Write('Green');
+  SetWriteColor(Colors.PINK);
+  Write('Pink');
+  SetWriteColor(Colors.GOLD);
+  Write('Gold');
+  ResetWriteColor();
+  WriteLn('NothingAgain');
+end.

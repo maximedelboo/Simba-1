@@ -472,6 +472,16 @@ begin
   DebugLn('');
 end;
 
+procedure _LapeSetWriteColor(const Params: PParamArray); LAPE_WRAPPER_CALLING_CONV
+begin
+  SetDebugLnColor(PInt32(Params^[0])^);
+end;
+
+procedure _LapeResetWriteColor(const Params: PParamArray); LAPE_WRAPPER_CALLING_CONV
+begin
+  ResetDebugLnColor();
+end;
+
 // Sort
 procedure _LapeSort_Int32Array(const Params: PParamArray); LAPE_WRAPPER_CALLING_CONV
 begin
@@ -732,6 +742,9 @@ begin
 
     addGlobalFunc('procedure _Write(S: String); override', @_LapeWrite);
     addGlobalFunc('procedure _WriteLn; override', @_LapeWriteLn);
+
+    addGlobalFunc('procedure SetWriteColor(C: TColor);', @_LapeSetWriteColor);
+    addGlobalFunc('procedure ResetWriteColor();', @_LapeResetWriteColor);
 
     // add native versions for lape to use
     addMagic('_ArrayMin', ['TIntegerArray'], [lptNormal], 'Integer', @_LapeArrayMin_Int32Array);
