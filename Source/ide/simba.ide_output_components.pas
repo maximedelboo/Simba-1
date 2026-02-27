@@ -7,32 +7,52 @@ interface
 uses
   Classes, SysUtils, SynEdit, SynEditHighlighter, Graphics, SynEditTextBuffer,
   LazSynEditText, fgl, SynHighlighterPas, syncobjs, simba.containers,
-  simba.component_synedit;
+  simba.component_synedit, Controls;
+
+const
+  CC_SET_BACKGROUND = UInt8(1);
+  CC_RESET_BACKGROUND = UInt8(2);
 
 type
-  EControlCode = (
-    ccBackground = 1,
-    ccResetBackground = 2
-  );
-
+  // the actual sequence that is encoded in the string
+  // example for `setting red background` in character view: #0#0#1#255#0#0#0
   PControlCode = ^TControlCode;
   TControlCode = packed record
-    Sig: array[0..1] of Char;
+    Sig: array[0..1] of Char; // #0#0
     Typ: UInt8;
     Data: UInt32;
   end;
 
+// Exposing TSynEdit is just a ton unrelated mess so just wrap it.
+type
+  TOutputListComponentReal = class(TCustomControl)
+  private
+    FListComponent: TComponent;
+  public
+    constructor Create(AOwner: TComponent); override;
+
+    procedure Add(const S: String);
+    procedure Flush;
+  end;
+
+implementation
+
+uses
+  SynEditTypes, SynEditMarkup, SynEditMiscClasses,
+  simba.vartype_string, ATCanvasPrimitives, simba.component_theme;
+
+type
+  TLineControlCode = record
+    Index: Int32; // column where this control code activates
+    Typ: UInt8;
+    Data: UInt32;
+  end;
+  TLineControlCodeArray = array of TLineControlCode;
+  TLineControlCodes = specialize TFPGList<TLineControlCodeArray>;
+
 type
   TOutputListComponent = class(TSimbaMemo)
   public type
-    TLineControlCode = record
-      Index: Int32;
-      Typ: UInt8;
-      Data: UInt32;
-    end;
-    TLineControlCodeArray = array of TLineControlCode;
-    TLineControlCodes = specialize TFPGList<TLineControlCodeArray>;
-
     TPending = record
       Text: String;
       Codes: TLineControlCodeArray;
@@ -67,10 +87,11 @@ type
     FTokenEnd: SizeInt;
     FLineText: String;
     FLineLength: SizeInt;
-    FControlCodes: TOutputListComponent.TLineControlCodeArray;
+    FControlCodes: TLineControlCodeArray;
     FNextIndex: SizeInt;
     FColor: TColor;
     FSpecialAttri: TSynHighlighterAttributesModifier;
+    FTest: TSynHighlighterAttributes;
   public
     procedure SetLine(const NewValue: String; LineNumber: Integer); override;
     procedure Next; override;
@@ -86,10 +107,75 @@ type
     function GetDefaultAttribute(Index: integer): TSynHighlighterAttributes; override;
   end;
 
-implementation
+  // Handles coloring the whitespace after line text has finished.
+  // Wasnt possible to do in highlighter to my knowledge
+  // Note: In theory the highlighter could be removed and everything handled here
+  //       however i did not know that at the time :)
+  TEndOfLineWhitespaceMarkup = class(TSynEditMarkup)
+  private
+    FControlCodes: TLineControlCodes;
+    FStart: Integer; // -1 will mean no markup
+  public
+    constructor Create(ASynEdit: TSynEditBase);
 
-uses
-  simba.vartype_string, ATCanvasPrimitives, simba.component_theme;
+    procedure PrepareMarkupForRow(aRow: Integer); override;
+    function GetMarkupAttributeAtRowCol(const aRow: Integer; const aStartCol: TLazSynDisplayTokenBound; const AnRtlInfo: TLazSynDisplayRtlInfo): TSynSelectedColor; override;
+    procedure GetNextMarkupColAfterRowCol(const aRow: Integer; const aStartCol: TLazSynDisplayTokenBound;const AnRtlInfo: TLazSynDisplayRtlInfo; out ANextPhys, ANextLog: Integer); override;
+    function GetMarkupAttributeAtWrapEnd(const aRow: Integer; const aWrapCol: TLazSynDisplayTokenBound): TSynSelectedColor; override;
+  end;
+
+constructor TEndOfLineWhitespaceMarkup.Create(ASynEdit: TSynEditBase);
+begin
+  inherited Create(ASynEdit);
+
+  FControlCodes := TOutputListComponent(ASynEdit).FControlCodes;
+end;
+
+procedure TEndOfLineWhitespaceMarkup.PrepareMarkupForRow(aRow: Integer);
+var
+  ControlCodesForLine: TLineControlCodeArray;
+  LastControlCode: TLineControlCode;
+begin
+  Assert(aRow-1 >= 0);
+  Assert(aRow-1 < FControlCodes.Count);
+
+  FStart := -1;
+
+  ControlCodesForLine := FControlCodes[aRow-1];
+  if (ControlCodesForLine <> nil) then
+  begin
+    LastControlCode := ControlCodesForLine[High(ControlCodesForLine)];
+    if (LastControlCode.Typ = CC_SET_BACKGROUND) then
+    begin
+      MarkupInfo.Background := ColorBlend(LastControlCode.Data, SimbaComponentTheme.ColorBackground, 150);
+      FStart := Length(Lines[aRow - 1]) + 1;
+    end;
+  end;
+end;
+
+function TEndOfLineWhitespaceMarkup.GetMarkupAttributeAtRowCol(const aRow: Integer; const aStartCol: TLazSynDisplayTokenBound; const AnRtlInfo: TLazSynDisplayRtlInfo): TSynSelectedColor;
+begin
+  if (FStart > -1) and (FStart <= aStartCol.Logical) then
+    Result := MarkupInfo
+  else
+    Result := nil;
+end;
+
+function TEndOfLineWhitespaceMarkup.GetMarkupAttributeAtWrapEnd(const aRow: Integer; const aWrapCol: TLazSynDisplayTokenBound): TSynSelectedColor;
+begin
+  if (FStart > -1) and (FStart <= aWrapCol.Logical) then
+    Result := MarkupInfo
+  else
+    Result := nil;
+end;
+
+procedure TEndOfLineWhitespaceMarkup.GetNextMarkupColAfterRowCol(const aRow: Integer; const aStartCol: TLazSynDisplayTokenBound; const AnRtlInfo: TLazSynDisplayRtlInfo; out ANextPhys, ANextLog: Integer);
+begin
+  ANextLog := -1;
+  ANextPhys := -1;
+  if (FStart > -1) and (FStart > aStartCol.Logical) then
+    ANextLog := FStart;
+end;
 
 procedure TOutputListComponent.OnLineCountChange(Sender: TSynEditStrings; aIndex, aCount: Integer);
 var
@@ -113,7 +199,7 @@ begin
   begin
     Sig[0] := #0;
     Sig[1] := #0;
-    Typ := Ord(ccBackground);
+    Typ := CC_SET_BACKGROUND;
     Data := c;
   end;
 end;
@@ -125,7 +211,7 @@ begin
   begin
     Sig[0] := #0;
     Sig[1] := #0;
-    Typ := Ord(ccResetBackground);
+    Typ := CC_RESET_BACKGROUND;
     Data := 0;
   end;
 end;
@@ -169,7 +255,7 @@ begin
     if (Lines.Count > 0) and (FControlCodes[Lines.Count - 1] <> nil) then
     begin
       Last := FControlCodes[Lines.Count - 1][High(FControlCodes[Lines.Count - 1])];
-      if (Last.Typ = Ord(ccBackground)) then
+      if (Last.Typ = CC_SET_BACKGROUND) then
         AddControlCode(ControlCodeCount, 0, Last.Typ, Last.Data);
     end;
   end else
@@ -177,7 +263,7 @@ begin
     if (FPending.Last.Codes <> nil) then
     begin
       Last := FPending.Last.Codes[High(FPending.Last.Codes)];
-      if (Last.Typ = Ord(ccBackground)) then
+      if (Last.Typ = CC_SET_BACKGROUND) then
         AddControlCode(ControlCodeCount, 0, Last.Typ, Last.Data);
     end;
   end;
@@ -280,6 +366,8 @@ begin
 
   TextView.AddChangeHandler(senrLineCount, @OnLineCountChange);
   TextView.AddChangeHandler(senrCleared, @OnCleared);
+
+  MarkupManager.AddMarkUp(TEndOfLineWhitespaceMarkup.Create(Self));
 end;
 
 destructor TOutputListComponent.Destroy;
@@ -298,7 +386,13 @@ begin
   FSpecialAttri := TSynHighlighterAttributesModifier.Create('special');
   FSpecialAttri.OnChange := nil;
 
+  FTest := TSynHighlighterAttributes.Create('Test');
+  FTest.OnChange := nil;
+  FTest.Background := clGreen;
+  FTest.FrameEdges := sfeNone;
+
   AddAttribute(FSpecialAttri);
+  AddAttribute(FTest);
 end;
 
 procedure TOutputHighlighter.SetLine(const NewValue: String; LineNumber: Integer);
@@ -331,7 +425,7 @@ begin
     FTokenEnd := FControlCodes[FNextIndex].Index + 1;
     if (FTokenPos = FTokenEnd) then
     begin
-      if (FControlCodes[FNextIndex].Typ = Ord(ccBackground)) then
+      if (FControlCodes[FNextIndex].Typ = CC_SET_BACKGROUND) then
         FColor := FControlCodes[FNextIndex].Data
       else
         FColor := -1;
@@ -364,7 +458,7 @@ begin
   else
   begin
     Result := FSpecialAttri;
-    Result.Background := ColorBlend(FColor, SimbaComponentTheme.ColorBackground, 120);
+    Result.Background := ColorBlend(FColor, SimbaComponentTheme.ColorBackground, 150);
   end;
 end;
 
@@ -380,12 +474,31 @@ end;
 
 function TOutputHighlighter.GetDefaultAttribute(Index: integer): TSynHighlighterAttributes;
 begin
-  Result := nil;
+  Result := FTest;
 end;
 
 function TOutputHighlighter.GetTokenKind: integer;
 begin
   Result := -1;
+end;
+
+constructor TOutputListComponentReal.Create(AOwner: TComponent);
+begin
+  inherited Create(AOwner);
+
+  FListComponent := TOutputListComponent.Create(Self);
+  TOutputListComponent(FListComponent).Parent := Self;
+  TOutputListComponent(FListComponent).Align := alClient;
+end;
+
+procedure TOutputListComponentReal.Add(const S: String);
+begin
+  TOutputListComponent(FListComponent).Add(S);
+end;
+
+procedure TOutputListComponentReal.Flush;
+begin
+  TOutputListComponent(FListComponent).Flush();
 end;
 
 end.

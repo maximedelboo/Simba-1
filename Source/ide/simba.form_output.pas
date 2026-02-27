@@ -39,7 +39,7 @@ type
     procedure DoFlushTimerExecute(Sender: TObject);
   protected
     FTabControl: TSimbaTabControl;
-    FSimbaOutputBox: TOutputListComponent;
+    FSimbaOutputBox: TOutputListComponentReal;
 
     function CanAnchorDocking(X, Y: Integer): Boolean;
 
@@ -47,16 +47,16 @@ type
 
     procedure DebugLn(const S: String);
 
-    function GetActiveOutputBox: TOutputListComponent;
+    function GetActiveOutputBox: TOutputListComponentReal;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
 
-    property SimbaOutputBox: TOutputListComponent read FSimbaOutputBox;
-    property ActiveOutputBox: TOutputListComponent read GetActiveOutputBox;
+    property SimbaOutputBox: TOutputListComponentReal read FSimbaOutputBox;
+    property ActiveOutputBox: TOutputListComponentReal read GetActiveOutputBox;
 
-    function AddSimbaOutput: TOutputListComponent;
-    function AddScriptOutput(TabTitle: String): TOutputListComponent;
+    function AddSimbaOutput: TOutputListComponentReal;
+    function AddScriptOutput(TabTitle: String): TOutputListComponentReal;
 
     procedure MoveTab(AFrom, ATo: Integer);
   end;
@@ -78,13 +78,13 @@ uses
 type
   TSimbaOutputTab = class(TSimbaTab)
   protected
-    FOutputBox: TOutputListComponent;
+    FOutputBox: TOutputListComponentReal;
 
     procedure DoTabScriptStateChange(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
 
-    property OutputBox: TOutputListComponent read FOutputBox;
+    property OutputBox: TOutputListComponentReal read FOutputBox;
   end;
 
 procedure TSimbaOutputTab.DoTabScriptStateChange(Sender: TObject);
@@ -104,7 +104,7 @@ constructor TSimbaOutputTab.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
 
-  FOutputBox := TOutputListComponent.Create(Self);
+  FOutputBox := TOutputListComponentReal.Create(Self);
   FOutputBox.Parent := Self;
   FOutputBox.Align := alClient;
 
@@ -126,7 +126,7 @@ begin
     TSimbaOutputTab(FTabControl.Tabs[I]).OutputBox.Flush();
 end;
 
-function TSimbaOutputForm.GetActiveOutputBox: TOutputListComponent;
+function TSimbaOutputForm.GetActiveOutputBox: TOutputListComponentReal;
 begin
   if (FTabControl.ActiveTab is TSimbaOutputTab) then
     Result := TSimbaOutputTab(FTabControl.ActiveTab).OutputBox
@@ -139,7 +139,7 @@ begin
   SimbaOutputBox.Add(S + LineEnding);
 end;
 
-function TSimbaOutputForm.AddSimbaOutput: TOutputListComponent;
+function TSimbaOutputForm.AddSimbaOutput: TOutputListComponentReal;
 var
   Tab: TSimbaOutputTab;
 begin
@@ -150,7 +150,7 @@ begin
   Result.PopupMenu := ContextMenu;
 end;
 
-function TSimbaOutputForm.AddScriptOutput(TabTitle: String): TOutputListComponent;
+function TSimbaOutputForm.AddScriptOutput(TabTitle: String): TOutputListComponentReal;
 var
   Tab: TSimbaOutputTab;
 begin

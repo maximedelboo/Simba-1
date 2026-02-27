@@ -88,7 +88,7 @@ type
 
     FScriptRunner: TSimbaScriptTabRunner;
 
-    FOutputBox: TOutputListComponent;
+    FOutputBox: TOutputListComponentReal;
 
     procedure LoadDefaultScript;
     procedure FindDeclarationAtCaretASync(Data: PtrInt);
@@ -107,7 +107,7 @@ type
     function GetScriptChanged: Boolean;
   public
     property UID: Integer read FUID;
-    property OutputBox: TOutputListComponent read FOutputBox;
+    property OutputBox: TOutputListComponentReal read FOutputBox;
 
     property ScriptTitle: String read FScriptTitle;
     property ScriptFileName: String read FScriptFileName;

@@ -210,67 +210,67 @@ var
   Package: TSimbaPackage;
   InstallOpts: TSimbaPackageInstallOptions;
 begin
-  if (FDelay > 0) then
-    Sleep(FDelay);
-
-  URLs := GetLocalPackageURLs(True);
-
-  SetLength(FPackages, Length(URLs));
-  for I := 0 to High(FPackages) do
-  begin
-    FPackages[I] := TSimbaPackage.Create(URLs[I]);
-    FPackages[I].Load();
-  end;
-
-  for I := 0 to High(FPackages) do
-  begin
-    Package := FPackages[I];
-
-    if Package.HasUpdate() and Package.AutoUpdateEnabled then
-    begin
-      DebugLn('Automatically updating %s', [Package.Name]);
-      Sleep(750); // whatever, let above flush... TSimbaPackageInstaller directly writes to the synedit.
-
-      try
-        with TSimbaPackageInstaller.Create(Package, SimbaOutputForm.SimbaOutputBox) do
-        try
-          Version := Package.Versions[0];
-
-          if HasRemoteInstallOpts then
-            InstallOpts := RemoteInstallOpts
-          else
-          begin
-            // I guess we can auto update this way too...
-            InstallOpts := Default(TSimbaPackageInstallOptions);
-            InstallOpts.Path := Package.InstalledPath;
-          end;
-
-          if Install(InstallOpts) then
-          begin
-            DebugLn('Succesfully updated "%s"', [Package.Name]);
-            DebugLn('Now at version: %s', [Package.InstalledVersion]);
-          end else
-            DebugLn('Failed to update: %s', [Package.Name]);
-        finally
-          Free();
-        end;
-      except
-        on E: Exception do
-          DebugLn('Failed to update: %s (%s)', [Package.Name, E.Message]);
-      end;
-    end;
-  end;
-
-  for I := 0 to High(FPackages) do
-    if FPackages[I].HasUpdate() then
-      FUpdates.Add('%s can be updated to version %s', [FPackages[I].Name, FPackages[I].LatestVersion]);
-
-  // find in this thread - these are cached.
-  for I := 0 to High(FPackages) do
-  begin
-    FPackages[I].ScriptFiles;
-    FPackages[I].ExampleFiles;
-  end;
+  //if (FDelay > 0) then
+  //  Sleep(FDelay);
+  //
+  //URLs := GetLocalPackageURLs(True);
+  //
+  //SetLength(FPackages, Length(URLs));
+  //for I := 0 to High(FPackages) do
+  //begin
+  //  FPackages[I] := TSimbaPackage.Create(URLs[I]);
+  //  FPackages[I].Load();
+  //end;
+  //
+  //for I := 0 to High(FPackages) do
+  //begin
+  //  Package := FPackages[I];
+  //
+  //  if Package.HasUpdate() and Package.AutoUpdateEnabled then
+  //  begin
+  //    DebugLn('Automatically updating %s', [Package.Name]);
+  //    Sleep(750); // whatever, let above flush... TSimbaPackageInstaller directly writes to the synedit.
+  //
+  //    try
+  //      with TSimbaPackageInstaller.Create(Package, SimbaOutputForm.SimbaOutputBox) do
+  //      try
+  //        Version := Package.Versions[0];
+  //
+  //        if HasRemoteInstallOpts then
+  //          InstallOpts := RemoteInstallOpts
+  //        else
+  //        begin
+  //          // I guess we can auto update this way too...
+  //          InstallOpts := Default(TSimbaPackageInstallOptions);
+  //          InstallOpts.Path := Package.InstalledPath;
+  //        end;
+  //
+  //        if Install(InstallOpts) then
+  //        begin
+  //          DebugLn('Succesfully updated "%s"', [Package.Name]);
+  //          DebugLn('Now at version: %s', [Package.InstalledVersion]);
+  //        end else
+  //          DebugLn('Failed to update: %s', [Package.Name]);
+  //      finally
+  //        Free();
+  //      end;
+  //    except
+  //      on E: Exception do
+  //        DebugLn('Failed to update: %s (%s)', [Package.Name, E.Message]);
+  //    end;
+  //  end;
+  //end;
+  //
+  //for I := 0 to High(FPackages) do
+  //  if FPackages[I].HasUpdate() then
+  //    FUpdates.Add('%s can be updated to version %s', [FPackages[I].Name, FPackages[I].LatestVersion]);
+  //
+  //// find in this thread - these are cached.
+  //for I := 0 to High(FPackages) do
+  //begin
+  //  FPackages[I].ScriptFiles;
+  //  FPackages[I].ExampleFiles;
+  //end;
 end;
 
 constructor TPackageUpdater.Create(Delay: Integer);
