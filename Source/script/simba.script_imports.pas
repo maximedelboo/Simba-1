@@ -47,7 +47,10 @@ uses
   // LCL
   simba.import_lcl_system, simba.import_lcl_graphics, simba.import_lcl_controls,
   simba.import_lcl_form, simba.import_lcl_stdctrls, simba.import_lcl_extctrls,
-  simba.import_lcl_comctrls, simba.import_lcl_misc;
+  simba.import_lcl_comctrls, simba.import_lcl_misc
+
+  // DXGI capture backend diagnostics
+  {$IFDEF WINDOWS}, simba.import_capture_dxgi{$ENDIF};
 
 procedure AddSimbaInternalMethods(Script: TSimbaScript);
 begin
@@ -112,6 +115,10 @@ begin
   ImportThreading(Script);
   ImportASync(Script);
   ImportVector(Script);
+
+  {$IFDEF WINDOWS}
+  ImportCaptureDXGI(Script);
+  {$ENDIF}
 end;
 
 end.

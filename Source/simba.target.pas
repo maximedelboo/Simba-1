@@ -274,7 +274,8 @@ implementation
 
 uses
   simba.nativeinterface, simba.vartype_box, simba.target_movemouse, simba.random,
-  simba.finder_color, simba.finder_image, simba.finder_dtm;
+  simba.finder_color, simba.finder_image, simba.finder_dtm,
+  simba.capture_dxgi;
 
 function TSimbaTargetEventManager.Add(Event: ETargetEvent; Method: TSimbaTargetEvent; UserData: Pointer; UserDataSize: Integer): Integer;
 
@@ -1170,6 +1171,10 @@ begin
 
   FTargetMethods.GetDimensions := @WindowTarget_GetDimensions;
   FTargetMethods.GetImageData := @WindowTarget_GetImageData;
+
+  // Open the DXGI capture path before TargetChanged so anything listening
+  // on the change event already sees fresh frames.
+  DXGIAutoOpen(Window);
 
   TargetChanged();
 end;

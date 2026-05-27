@@ -86,7 +86,8 @@ implementation
 
 uses
   windows, jwapsapi, dwmapi, multimon, mmsystem,
-  simba.process, simba.vartype_windowhandle, simba.vartype_box;
+  simba.process, simba.vartype_windowhandle, simba.vartype_box,
+  simba.capture_dxgi;
 
 type
   MONITOR_DPI_TYPE = (
@@ -240,77 +241,12 @@ begin
 end;
 
 function TSimbaNativeInterface_Windows.GetWindowImage(Window: TWindowHandle; X, Y, Width, Height: Integer; var ImageData: PColorBGRA): Boolean;
-
-  // BitBlt uses GetWindowRect area so must offset to real bounds if DwmCompositionEnabled.
-  procedure ApplyRootOffset(Window: TWindowHandle; var X, Y: Integer);
-  var
-    R: array[0..1] of TRect;
-  begin
-    if DwmCompositionEnabled() and (DwmGetWindowAttribute(Window, DWMWA_EXTENDED_FRAME_BOUNDS, @R[0], SizeOf(TRect)) = S_OK) then
-      if GetWindowRect(Window, R[1]) then
-      begin
-        Inc(X, R[0].Left - R[1].Left);
-        Inc(Y, R[0].Top - R[1].Top);
-      end;
-  end;
-
-  // Monitors on left of primary will be in negative coord space.
-  procedure ApplyDesktopOffset(DC: HDC; var X, Y: Integer);
-  var
-    Offset: TPoint;
-  begin
-    Offset := Default(TPoint);
-
-    if EnumDisplayMonitors(DC, nil, @GetDesktopOffset, PtrInt(@Offset)) then
-    begin
-      Inc(X, Offset.X);
-      Inc(Y, Offset.Y);
-    end;
-  end;
-
-var
-  WindowDC, MemoryDC: HDC;
-  MemoryBitmap: HBITMAP;
-  BitmapInfo: TBitmapInfo;
-  PreviousObject: HGDIOBJ;
 begin
-  if (Window = GetDesktopWindow()) then
-  begin
-    WindowDC := GetDC(GetDesktopWindow());
-
-    ApplyDesktopOffset(WindowDC, X, Y);
-  end else
-  begin
-    WindowDC := GetWindowDC(Window);
-    if (Window = GetAncestor(Window, GA_ROOT)) then
-      ApplyRootOffset(Window, X, Y);
-  end;
-
-  MemoryDC := CreateCompatibleDC(WindowDC);
-  MemoryBitmap := CreateCompatibleBitmap(WindowDC, Width, Height);
-
-  PreviousObject := SelectObject(MemoryDC, MemoryBitmap);
-
-  Result := BitBlt(MemoryDC, 0, 0, Width, Height, WindowDC, X, Y, SRCCOPY);
-  if Result then
-  begin
-    BitmapInfo := Default(TBitmapInfo);
-    BitmapInfo.bmiHeader.biSize := SizeOf(TBitmapInfo);
-    BitmapInfo.bmiHeader.biWidth := Width;
-    BitmapInfo.bmiHeader.biHeight := -Height;
-    BitmapInfo.bmiHeader.biPlanes := 1;
-    BitmapInfo.bmiHeader.biBitCount := BitSizeOf(TColorBGRA);
-    BitmapInfo.bmiHeader.biCompression := BI_RGB;
-
-    GetDIBits(MemoryDC, MemoryBitmap, 0, Height, ReAllocMem(ImageData, Width * Height * SizeOf(TColorBGRA)), BitmapInfo, DIB_RGB_COLORS);
-  end;
-
-  SelectObject(MemoryDC, PreviousObject);
-
-  DeleteDC(MemoryDC);
-  DeleteObject(MemoryBitmap);
-
-  ReleaseDC(Window, WindowDC);
+  // DXGI Desktop Duplication is the only window-capture path on this
+  // build. The user-facing message bubbles up from DXGILastError; on
+  // pre-Win8 systems DXGI itself fails to load and the empty image is
+  // the expected outcome.
+  Result := DXGITryGetImage(Window, X, Y, Width, Height, ImageData);
 end;
 
 procedure TSimbaNativeInterface_Windows.MouseUp(Button: EMouseButton);
