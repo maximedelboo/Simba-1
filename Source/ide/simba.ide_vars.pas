@@ -34,7 +34,7 @@ var
 implementation
 
 uses
-  simba.vartype_windowhandle;
+  simba.vartype_windowhandle, simba.capture_wgc;
 
 function TSimbaIDEVars.GetWindowSelection: TWindowHandle;
 begin
@@ -46,6 +46,8 @@ end;
 procedure TSimbaIDEVars.SetWindowSelection(AValue: TWindowHandle);
 begin
   FWindowSelection := AValue;
+  // WGCAutoOpen is idempotent on same-window — safe to call unconditionally.
+  WGCAutoOpen(AValue);
 end;
 
 end.

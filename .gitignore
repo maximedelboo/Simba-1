@@ -39,3 +39,10 @@ backup/
 /Source/ide/codetools/test/test.exe
 /Source/ide/codetools/test/test.lps
 /Source/ide/codetools/test/backup
+/Source/test/wgc/lib
+/Source/test/wgc/test_winrt_helpers_public.exe
+/Source/test/wgc/test_winrt_helpers_public.lps
+/Source/test/wgc/test_wgc_capture.exe
+/Source/test/wgc/test_wgc_capture.lps
+/Source/test/wgc/frame_*.bmp
+/Source/test/wgc/backup

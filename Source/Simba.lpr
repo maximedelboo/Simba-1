@@ -25,7 +25,10 @@ uses
   simba.openssl,
   simba.ide_colorpicker, simba.ide_windowselector, simba.ide_areaselector,
   simba.ide_mainmenubar, simba.ide_maintoolbar, simba.ide_mainstatusbar,
-  simba.form_functionlist, simba.form_output;
+  simba.form_functionlist, simba.form_output,
+  // WGC capture backend. The sole window-capture path on Win10 1803+.
+  // See docs/wgc-capture-backend/PLAN.md.
+  simba.winrt_helpers, simba.capture_wgc;
 
 begin
   {$IF DECLARED(HEAPTRC)}

@@ -286,7 +286,8 @@ uses
   simba.zip,
   simba.nativeinterface,
   simba.containers,
-  simba.threading;
+  simba.threading
+  {$IFDEF WINDOWS}, simba.capture_wgc{$ENDIF};
 
 function TSimbaImage.Copy: TSimbaImage;
 begin
@@ -2011,6 +2012,51 @@ begin
 end;
 
 constructor TSimbaImage.CreateFromWindow(Window: TWindowHandle);
+{$IFDEF WINDOWS}
+var
+  B: TBox;
+  W, H, I: Integer;
+begin
+  Create();
+
+  if not SimbaNativeInterface.GetWindowBounds(Window, B) then
+    Exit;
+
+  // GetWindowImage uses (Width - 1, Height - 1) historically; preserve
+  // the same dimensions here so capture output matches the legacy path.
+  W := B.Width - 1;
+  H := B.Height - 1;
+  if (W <= 0) or (H <= 0) then
+    Exit;
+
+  // Fast path: allocate FData directly (no zero-fill — we're about to
+  // overwrite every byte from the WGC frame buffer) and copy straight
+  // into it. Eliminates the intermediate ImageData buffer + the
+  // FromData memcpy that the prior implementation paid on every call.
+  //
+  // FDataOwner is True by default (set in Create), and FData is nil at
+  // this point, so this raw allocation is safe — no prior buffer to
+  // free, no external-data corruption risk.
+  FData := GetMem(W * H * SizeOf(TColorBGRA));
+  FWidth := W;
+  FHeight := H;
+  FCenter := TPoint.Create(W div 2, H div 2);
+
+  SetLength(FLineStarts, H);
+  for I := 0 to H - 1 do
+    FLineStarts[I] := @FData[W * I];
+
+  if not WGCTryGetImageInto(Window, 0, 0, W, H, FData, W) then
+  begin
+    // WGC declined (no frame yet, window mismatch, etc.). The image is
+    // sized correctly but its contents are uninitialized garbage. Zero
+    // it to match the historical "capture failed -> empty image" shape
+    // (the prior code would leave the constructor with a zero-sized
+    // image; the new code keeps the dimensions but blanks the pixels).
+    FillChar(FData^, W * H * SizeOf(TColorBGRA), 0);
+  end;
+end;
+{$ELSE}
 var
   B: TBox;
   ImageData: PColorBGRA = nil;
@@ -2025,6 +2071,7 @@ begin
     FreeMem(ImageData);
   end;
 end;
+{$ENDIF}
 
 destructor TSimbaImage.Destroy;
 begin
