@@ -34,7 +34,8 @@ var
 implementation
 
 uses
-  simba.vartype_windowhandle;
+  simba.vartype_windowhandle,
+  simba.remoteinput_autopair;
 
 function TSimbaIDEVars.GetWindowSelection: TWindowHandle;
 begin
@@ -46,6 +47,10 @@ end;
 procedure TSimbaIDEVars.SetWindowSelection(AValue: TWindowHandle);
 begin
   FWindowSelection := AValue;
+  // Attempt to pair libremoteinput so IDE image-capture tools (ACA, DTM,
+  // debug viewer) work on OpenGL-rendered targets like RuneLite + GPU plugin.
+  // No-op for non-RuneLite targets or when libremoteinput64.dll is absent.
+  RemoteInputAutoPair(AValue);
 end;
 
 end.

@@ -82,6 +82,18 @@ type
     procedure StopSound; override;
   end;
 
+// Optional override for GetWindowImage. If set and the hook returns True,
+// its ImageData is used instead of the default GDI BitBlt path. Used by
+// simba.ide_remoteinput to swap in libremoteinput-based capture for
+// OpenGL/DX windows where BitBlt freezes on stale pixels. Variable lives
+// here (not in an ide unit) so non-IDE callers — e.g. simba.target_window —
+// can opt in too, without creating a layering dependency on the IDE.
+type
+  TGetWindowImageHook = function(Window: TWindowHandle; X, Y, Width, Height: Integer; var ImageData: PColorBGRA): Boolean;
+
+var
+  GetWindowImageHook: TGetWindowImageHook = nil;
+
 implementation
 
 uses
@@ -274,6 +286,11 @@ var
   BitmapInfo: TBitmapInfo;
   PreviousObject: HGDIOBJ;
 begin
+  // Try the registered hook first (e.g. libremoteinput for RuneLite GPU mode).
+  // If it succeeds the GDI BitBlt path is bypassed entirely.
+  if Assigned(GetWindowImageHook) and GetWindowImageHook(Window, X, Y, Width, Height, ImageData) then
+    Exit(True);
+
   if (Window = GetDesktopWindow()) then
   begin
     WindowDC := GetDC(GetDesktopWindow());

@@ -274,7 +274,8 @@ implementation
 
 uses
   simba.nativeinterface, simba.vartype_box, simba.target_movemouse, simba.random,
-  simba.finder_color, simba.finder_image, simba.finder_dtm;
+  simba.finder_color, simba.finder_image, simba.finder_dtm,
+  simba.remoteinput_autopair;
 
 function TSimbaTargetEventManager.Add(Event: ETargetEvent; Method: TSimbaTargetEvent; UserData: Pointer; UserDataSize: Integer): Integer;
 
@@ -1151,6 +1152,12 @@ begin
 
   FTargetWindow := Window;
   FTarget := @FTargetWindow;
+
+  // Per-process libremoteinput auto-pair: when a script (or anyone else)
+  // binds Target to a window, check if it's a RuneLite SunAwtCanvas and
+  // pair so that Target.GetImage() routes through the JVM injection.
+  // No-op on non-Windows or non-RuneLite windows.
+  RemoteInputAutoPair(Window);
 
   FTargetMethods.Focus := @WindowTarget_Focus;
   FTargetMethods.IsFocused := @WindowTarget_IsFocused;
