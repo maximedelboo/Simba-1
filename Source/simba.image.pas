@@ -287,7 +287,7 @@ uses
   simba.nativeinterface,
   simba.containers,
   simba.threading
-  {$IFDEF WINDOWS}, simba.capture_dxgi{$ENDIF};
+  {$IFDEF WINDOWS}, simba.capture_glhook_reader{$ENDIF};
 
 function TSimbaImage.Copy: TSimbaImage;
 begin
@@ -2015,7 +2015,8 @@ constructor TSimbaImage.CreateFromWindow(Window: TWindowHandle);
 {$IFDEF WINDOWS}
 var
   B: TBox;
-  W, H, I: Integer;
+  W, H: Integer;
+  ImageData: PColorBGRA = nil;
 begin
   Create();
 
@@ -2029,27 +2030,14 @@ begin
   if (W <= 0) or (H <= 0) then
     Exit;
 
-  // Allocate FData directly (no zero-fill -- we're about to overwrite
-  // every byte from the DXGI frame buffer) and copy straight into it.
-  // Eliminates the intermediate ImageData buffer + FromData memcpy that
-  // the prior GetWindowImage-based implementation paid on every call.
-  // FDataOwner is True by default (set in Create); FData is nil at this
-  // point, so the raw allocation is safe.
-  FData := GetMem(W * H * SizeOf(TColorBGRA));
-  FWidth := W;
-  FHeight := H;
-  FCenter := TPoint.Create(W div 2, H div 2);
-
-  SetLength(FLineStarts, H);
-  for I := 0 to H - 1 do
-    FLineStarts[I] := @FData[W * I];
-
-  if not DXGITryGetImageInto(Window, 0, 0, W, H, FData, W) then
-  begin
-    // DXGI declined (no frame yet, window mismatch, etc.). The image is
-    // sized correctly but its contents are uninitialized; zero it to
-    // match the historical "capture failed -> empty image" shape.
-    FillChar(FData^, W * H * SizeOf(TColorBGRA), 0);
+  // Route through the GL-hook reader. If the target isn't hooked the
+  // reader returns False; we leave FData nil + dimensions 0 to match
+  // the "capture failed -> empty image" shape callers expect.
+  if GLHookTryGetImage(Window, 0, 0, W, H, ImageData) then
+  try
+    FromData(W, H, ImageData, W);
+  finally
+    FreeMem(ImageData);
   end;
 end;
 {$ELSE}

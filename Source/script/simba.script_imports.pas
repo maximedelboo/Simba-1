@@ -47,10 +47,11 @@ uses
   // LCL
   simba.import_lcl_system, simba.import_lcl_graphics, simba.import_lcl_controls,
   simba.import_lcl_form, simba.import_lcl_stdctrls, simba.import_lcl_extctrls,
-  simba.import_lcl_comctrls, simba.import_lcl_misc
+  simba.import_lcl_comctrls, simba.import_lcl_misc;
 
-  // DXGI capture backend diagnostics
-  {$IFDEF WINDOWS}, simba.import_capture_dxgi{$ENDIF};
+  // simba.import_capture_dxgi unhooked from the build for Phase 9 -- the
+  // GL render-thread hook replaces DXGI as the capture path. Source file
+  // retained on disk for future re-use.
 
 procedure AddSimbaInternalMethods(Script: TSimbaScript);
 begin
@@ -116,9 +117,8 @@ begin
   ImportASync(Script);
   ImportVector(Script);
 
-  {$IFDEF WINDOWS}
-  ImportCaptureDXGI(Script);
-  {$ENDIF}
+  // ImportCaptureDXGI unhooked for Phase 9 -- GL-hook replaces DXGI as
+  // the capture path. Source kept on disk for future reuse.
 end;
 
 end.

@@ -34,7 +34,7 @@ var
 implementation
 
 uses
-  simba.vartype_windowhandle, simba.capture_dxgi, simba.capture_glhook;
+  simba.vartype_windowhandle, simba.capture_glhook;
 
 function TSimbaIDEVars.GetWindowSelection: TWindowHandle;
 begin
@@ -46,8 +46,7 @@ end;
 procedure TSimbaIDEVars.SetWindowSelection(AValue: TWindowHandle);
 begin
   FWindowSelection := AValue;
-  // DXGIAutoOpen is idempotent on same-window -- safe to call unconditionally.
-  DXGIAutoOpen(AValue);
+  // GLHookAutoInject is idempotent on already-injected PIDs.
   GLHookAutoInject(AValue);
 end;
 

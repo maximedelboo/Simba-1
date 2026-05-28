@@ -275,7 +275,7 @@ implementation
 uses
   simba.nativeinterface, simba.vartype_box, simba.target_movemouse, simba.random,
   simba.finder_color, simba.finder_image, simba.finder_dtm,
-  simba.capture_dxgi, simba.capture_glhook;
+  simba.capture_glhook;
 
 function TSimbaTargetEventManager.Add(Event: ETargetEvent; Method: TSimbaTargetEvent; UserData: Pointer; UserDataSize: Integer): Integer;
 
@@ -1172,9 +1172,9 @@ begin
   FTargetMethods.GetDimensions := @WindowTarget_GetDimensions;
   FTargetMethods.GetImageData := @WindowTarget_GetImageData;
 
-  // Open the DXGI capture path before TargetChanged so anything listening
-  // on the change event already sees fresh frames.
-  DXGIAutoOpen(Window);
+  // Inject the GL render-thread hook before TargetChanged so anything
+  // listening on the change event already sees fresh frames once the
+  // host produces them.
   GLHookAutoInject(Window);
 
   TargetChanged();

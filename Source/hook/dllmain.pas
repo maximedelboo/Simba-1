@@ -265,11 +265,233 @@ var
 const
   LOG_EVERY_N = 60;
 
+// ============================================================================
+// Shared-memory frame capture
+// ----------------------------------------------------------------------------
+// On each wglSwapBuffers we glReadPixels the back buffer into a per-PID
+// named file mapping (`Local\Simba_GL_Capture_<PID>`) protected by a named
+// mutex (`Local\Simba_GL_Capture_Lock_<PID>`). Simba's reader opens these
+// existing kernel objects, copies the latest frame, and crops to the
+// requested region. This replaces the DXGI desktop-duplication path so
+// overlapping windows no longer pollute the capture.
+//
+// Layout: a fixed-size header (TGLCaptureHeader) followed by pixel data.
+// Capacity is fixed at 4 MiB pixels -- enough for up to 1024x1024 BGRA;
+// larger viewports are truncated by clamping height. The hook holds the
+// mutex only during glReadPixels + flip + header update; outside that
+// window it never touches the mapping, so a non-reading Simba causes no
+// contention.
+// ============================================================================
+
+const
+  // ASCII 'SGLC' little-endian. Verified by reader before trusting header.
+  GLCAPTURE_MAGIC: UInt32 = $43474C53;
+
+  // OpenGL enums we use; declared here rather than pulling in dglOpenGL so
+  // the DLL keeps its tiny dependency footprint.
+  GL_VIEWPORT      = $0BA2;
+  GL_BACK          = $0405;
+  GL_BGRA          = $80E1;
+  GL_UNSIGNED_BYTE = $1401;
+
+type
+  TGLCaptureHeader = packed record
+    Magic:         UInt32;        // GLCAPTURE_MAGIC
+    Width:         UInt32;        // pixels
+    Height:        UInt32;        // pixels
+    BytesPerPixel: UInt32;        // always 4 (BGRA)
+    FrameCounter:  UInt64;        // atomic monotonic counter
+    Capacity:      UInt64;        // bytes of pixel area available after header
+    Reserved:      array[0..31] of Byte;
+  end;
+  PGLCaptureHeader = ^TGLCaptureHeader;
+
+var
+  // Lazily resolved from opengl32.dll on first frame after the hook is
+  // installed. Done lazily because at DLL_PROCESS_ATTACH time there is no
+  // current GL context, and GetProcAddress on a not-yet-loaded module
+  // would fail.
+  glGetIntegerv: procedure(pname: DWORD; params: PInteger); stdcall = nil;
+  glReadBuffer:  procedure(mode: DWORD); stdcall = nil;
+  glReadPixels:  procedure(x, y: Integer; width, height: Integer;
+                           format, type_: DWORD; pixels: Pointer); stdcall = nil;
+
+  // Per-PID named-kernel-object handles plus the mapped view. Created
+  // lazily in InitSharedCapture on the first swap after install, torn
+  // down in finalization.
+  GShmHandle:   THandle    = 0;
+  GShmView:     Pointer    = nil;
+  GShmLock:     THandle    = 0;
+  GShmCapacity: NativeUInt = 0;
+  GShmInited:   Boolean    = False;
+  GShmAttempted: Boolean   = False; // one-shot guard: don't retry on failure
+
+// Lazy initializer for the shared-memory capture buffer. Returns silently
+// on any failure -- if shared capture can't be set up the host process is
+// still safe; Simba's reader will just keep returning False until the
+// situation is fixed (which today means a Simba relaunch).
+procedure InitSharedCapture();
+const
+  // 4 MiB pixel area = enough for 1024x1024 BGRA. RuneLite's typical
+  // client area is 800x534 (~1.7 MiB) so this gives generous headroom.
+  // Larger viewports are clamped at capture time rather than reallocating
+  // the mapping mid-session (POC simplification).
+  CAPACITY_BYTES = 4 * 1024 * 1024;
+var
+  OpenGL: HMODULE;
+  ShmName: WideString;
+  LockName: WideString;
+  TotalSize: UInt64;
+  Hdr: PGLCaptureHeader;
+begin
+  if GShmInited or GShmAttempted then Exit;
+  GShmAttempted := True;
+
+  OpenGL := GetModuleHandleW('opengl32.dll');
+  if OpenGL = 0 then
+  begin
+    WriteLog('wgl_hook: shared capture: opengl32.dll not loaded');
+    Exit;
+  end;
+
+  Pointer(glGetIntegerv) := GetProcAddress(OpenGL, 'glGetIntegerv');
+  Pointer(glReadBuffer)  := GetProcAddress(OpenGL, 'glReadBuffer');
+  Pointer(glReadPixels)  := GetProcAddress(OpenGL, 'glReadPixels');
+  if (@glGetIntegerv = nil) or (@glReadBuffer = nil) or (@glReadPixels = nil) then
+  begin
+    WriteLog('wgl_hook: shared capture: failed to resolve gl* function pointers');
+    Exit;
+  end;
+
+  GShmCapacity := CAPACITY_BYTES;
+  TotalSize := UInt64(SizeOf(TGLCaptureHeader)) + UInt64(GShmCapacity);
+
+  ShmName  := WideString('Local\Simba_GL_Capture_')      + WideString(IntToStr(GetCurrentProcessId()));
+  LockName := WideString('Local\Simba_GL_Capture_Lock_') + WideString(IntToStr(GetCurrentProcessId()));
+
+  GShmHandle := CreateFileMappingW(INVALID_HANDLE_VALUE, nil,
+                                   PAGE_READWRITE,
+                                   DWORD(TotalSize shr 32),
+                                   DWORD(TotalSize and $FFFFFFFF),
+                                   PWideChar(ShmName));
+  if GShmHandle = 0 then
+  begin
+    WriteLog(Format('wgl_hook: shared capture: CreateFileMappingW failed err=%d',
+      [GetLastError()]));
+    Exit;
+  end;
+
+  GShmView := MapViewOfFile(GShmHandle, FILE_MAP_READ or FILE_MAP_WRITE, 0, 0, 0);
+  if GShmView = nil then
+  begin
+    WriteLog(Format('wgl_hook: shared capture: MapViewOfFile failed err=%d',
+      [GetLastError()]));
+    CloseHandle(GShmHandle);
+    GShmHandle := 0;
+    Exit;
+  end;
+
+  GShmLock := CreateMutexW(nil, False, PWideChar(LockName));
+  if GShmLock = 0 then
+  begin
+    WriteLog(Format('wgl_hook: shared capture: CreateMutexW failed err=%d',
+      [GetLastError()]));
+    UnmapViewOfFile(GShmView);
+    GShmView := nil;
+    CloseHandle(GShmHandle);
+    GShmHandle := 0;
+    Exit;
+  end;
+
+  // Zero-init the header. We do this without holding the mutex because
+  // GShmInited is still False -- no reader will trust the header until
+  // we publish it by setting GShmInited = True at the end.
+  Hdr := PGLCaptureHeader(GShmView);
+  FillChar(Hdr^, SizeOf(TGLCaptureHeader), 0);
+  Hdr^.Magic := GLCAPTURE_MAGIC;
+  Hdr^.BytesPerPixel := 4;
+  Hdr^.Capacity := GShmCapacity;
+
+  GShmInited := True;
+  WriteLog(Format('wgl_hook: shared capture initialized (capacity=%d bytes)',
+    [GShmCapacity]));
+end;
+
+// Read the current GL_BACK buffer into shared memory. Must be called
+// BEFORE the trampoline call: once SwapBuffers returns, GL_BACK's
+// contents are undefined.
+procedure CaptureCurrentFrame();
+var
+  vp: array[0..3] of Integer;  // x, y, w, h
+  W, H, Stride, Y: Integer;
+  Pixels: PByte;
+  LineBuf: array of Byte;
+  Hdr: PGLCaptureHeader;
+  WaitRes: DWORD;
+begin
+  if not GShmInited then
+  begin
+    InitSharedCapture();
+    if not GShmInited then Exit;
+  end;
+
+  // glGetIntegerv(GL_VIEWPORT) returns x,y,w,h of the active viewport.
+  // RuneLite resets this every frame to match its client area.
+  glGetIntegerv(GL_VIEWPORT, @vp[0]);
+  W := vp[2];
+  H := vp[3];
+  if (W <= 0) or (H <= 0) then Exit;
+  Stride := W * 4;
+
+  // Clamp height if the viewport would overflow our fixed buffer. A
+  // partial top-cropped frame is more useful than nothing, and full
+  // capture would need a reallocation we deliberately don't do in this
+  // POC. Documented as a known limit: > ~1024x1024 = clipped.
+  if (Int64(Stride) * H) > Int64(GShmCapacity) then
+  begin
+    H := GShmCapacity div Stride;
+    if H <= 0 then Exit;
+  end;
+
+  // 50ms timeout: if Simba is holding the mutex that long something is
+  // very wrong on the reader side; we'd rather drop this frame than
+  // stall the render thread.
+  WaitRes := WaitForSingleObject(GShmLock, 50);
+  if WaitRes <> WAIT_OBJECT_0 then Exit;
+  try
+    Hdr := PGLCaptureHeader(GShmView);
+    Pixels := PByte(GShmView) + SizeOf(TGLCaptureHeader);
+
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, W, H, GL_BGRA, GL_UNSIGNED_BYTE, Pixels);
+
+    // GL returns rows bottom-up; Windows wants top-down. Flip in-place
+    // by swapping line N with line H-1-N via a one-line scratch buffer.
+    // Cost: H*Stride bytes copied 3x for the bottom half; acceptable at
+    // 60fps for client-area-sized frames.
+    SetLength(LineBuf, Stride);
+    for Y := 0 to (H div 2) - 1 do
+    begin
+      Move((Pixels + Y * Stride)^, LineBuf[0], Stride);
+      Move((Pixels + (H - 1 - Y) * Stride)^, (Pixels + Y * Stride)^, Stride);
+      Move(LineBuf[0], (Pixels + (H - 1 - Y) * Stride)^, Stride);
+    end;
+
+    Hdr^.Width := UInt32(W);
+    Hdr^.Height := UInt32(H);
+    InterlockedIncrement64(Int64(Hdr^.FrameCounter));
+  finally
+    ReleaseMutex(GShmLock);
+  end;
+end;
+
 // Replacement for opengl32!wglSwapBuffers. Runs on the host's render
-// thread once per frame. Forwards to the trampoline (which executes the
-// original prologue and jumps back into the rest of the real function),
-// then bumps a frame counter and logs every 60th frame so we have visible
-// proof the hook is firing.
+// thread once per frame. Captures the back-buffer pixels into shared
+// memory BEFORE handing off to the trampoline (post-swap, GL_BACK
+// contents are undefined). Then forwards to the trampoline (which
+// executes the original prologue and jumps back into the rest of the
+// real function), bumps a frame counter, and logs every 60th frame so
+// we have visible proof the hook is firing.
 function WglSwapBuffersHook(hdc: HDC): BOOL; stdcall;
 type
   PWglSwapBuffersFn = function(hdc: HDC): BOOL; stdcall;
@@ -277,6 +499,16 @@ var
   OrigFn: PWglSwapBuffersFn;
   N: Int64;
 begin
+  // Capture first -- glReadPixels on GL_BACK only meaningful pre-swap.
+  // Wrapped in try/except because a faulting capture must not take down
+  // the host's render thread.
+  try
+    CaptureCurrentFrame();
+  except
+    // Swallow: the host process must keep running even if our capture
+    // hits an unexpected GL state.
+  end;
+
   OrigFn := PWglSwapBuffersFn(GWglHook.Trampoline);
   if OrigFn = nil then
   begin
@@ -382,6 +614,24 @@ finalization
   begin
     if not HookEngine_Uninstall(GWglHook, GFinErr) then
       WriteLog('wgl_hook: uninstall on detach failed: ' + GFinErr);
+  end;
+  // Tear down shared capture in the reverse order it was set up. Order
+  // matters: the mapped view must be unmapped before its mapping handle
+  // is closed; the mutex is independent.
+  if GShmLock <> 0 then
+  begin
+    CloseHandle(GShmLock);
+    GShmLock := 0;
+  end;
+  if GShmView <> nil then
+  begin
+    UnmapViewOfFile(GShmView);
+    GShmView := nil;
+  end;
+  if GShmHandle <> 0 then
+  begin
+    CloseHandle(GShmHandle);
+    GShmHandle := 0;
   end;
   WriteLog('detach');
 

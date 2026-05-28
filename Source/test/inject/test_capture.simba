@@ -1,0 +1,19 @@
+program TestCapture;
+
+// Sets RuneLite as the Simba target, waits a moment for the hook to
+// install and start capturing frames, then grabs an image and saves it.
+// If the GL-hook capture path works end-to-end the saved BMP shows the
+// RuneLite content -- crucially, the captured pixels come from BEFORE
+// DWM composition so no overlapping windows can appear in the frame.
+
+var
+  Img: TImage;
+
+begin
+  Target.SetWindow(14030180);
+  Sleep(500);
+
+  Img := Target.GetImage();
+  WriteLn(Format('Captured %dx%d', [Img.Width, Img.Height]));
+  Img.Save('C:\Users\maxim\AppData\Local\Temp\simba_glhook_capture.bmp', True);
+end.

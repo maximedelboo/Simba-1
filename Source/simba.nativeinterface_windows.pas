@@ -87,7 +87,7 @@ implementation
 uses
   windows, jwapsapi, dwmapi, multimon, mmsystem,
   simba.process, simba.vartype_windowhandle, simba.vartype_box,
-  simba.capture_dxgi;
+  simba.capture_glhook_reader;
 
 type
   MONITOR_DPI_TYPE = (
@@ -242,11 +242,11 @@ end;
 
 function TSimbaNativeInterface_Windows.GetWindowImage(Window: TWindowHandle; X, Y, Width, Height: Integer; var ImageData: PColorBGRA): Boolean;
 begin
-  // DXGI Desktop Duplication is the only window-capture path on this
-  // build. The user-facing message bubbles up from DXGILastError; on
-  // pre-Win8 systems DXGI itself fails to load and the empty image is
-  // the expected outcome.
-  Result := DXGITryGetImage(Window, X, Y, Width, Height, ImageData);
+  // GL render-thread hook is the only capture path. Targets without a
+  // running hook (non-GL processes, non-injectable processes) return
+  // False here, which yields an empty image upstream -- matching the
+  // pre-existing convention for capture failure.
+  Result := GLHookTryGetImage(Window, X, Y, Width, Height, ImageData);
 end;
 
 procedure TSimbaNativeInterface_Windows.MouseUp(Button: EMouseButton);

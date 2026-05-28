@@ -29,9 +29,6 @@ uses
   simba.ide_colorpicker, simba.ide_windowselector, simba.ide_areaselector,
   simba.ide_mainmenubar, simba.ide_maintoolbar, simba.ide_mainstatusbar,
   simba.form_functionlist, simba.form_output,
-  // DXGI Desktop Duplication capture backend. The sole window-capture
-  // path on this build. See docs/dxgi-capture-backend/PLAN.md.
-  simba.capture_dxgi,
   // OpenGL render-thread hook injector. Auto-fires when a window
   // target is set. See docs/pascal-injection-poc/NEXT_STEPS.md.
   simba.capture_glhook;
