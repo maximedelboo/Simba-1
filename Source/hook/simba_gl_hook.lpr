@@ -8,7 +8,7 @@ library simba_gl_hook;
 {$mode objfpc}{$H+}
 
 uses
-  Windows, SysUtils, dllmain;
+  Windows, SysUtils, hook_engine, dllmain;
 
 exports
   Probe name 'Probe';

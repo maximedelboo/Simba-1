@@ -33,7 +33,24 @@ RTL come up cleanly in a JVM-hosted host?") is now a known good.
 
 In rough order of "do this next" → "do this last":
 
-### 1. Inline hook engine inside the DLL
+### 1. Inline hook engine inside the DLL — **DONE** (see `Source/hook/hook_engine.pas` + `dllmain.pas`)
+
+Phase 7 delivered the full hook engine: `Source/hook/hook_engine.pas`
+provides `HookEngine_Install` / `HookEngine_Uninstall` with a 14-byte
+absolute-jump trampoline, prologue sanity check, and TOCTOU-safe handle
+population. `Source/hook/dllmain.pas` exercises it via an in-DLL
+self-test (`TestHookEngine`) wired into the rundll32 `Probe` export, and
+includes a gated `PrepareWglHook` that validates `wglSwapBuffers`
+prologue on attach but does NOT install unless `SIMBA_HOOK_INSTALL=1` is
+set in the host process's environment. Verified against live RuneLite:
+prologue match, install gate effective, host survives.
+
+The original spec text below is preserved for context but the work it
+describes is complete.
+
+---
+
+
 
 The capture path needs to intercept `wglSwapBuffers` in the target process.
 Concrete prologue data captured from live RuneLite (PID 14944):
@@ -206,14 +223,16 @@ DLL".
 ## Files produced by this branch
 
 ```
-docs/pascal-injection-poc/PLAN.md         The execution plan
+docs/pascal-injection-poc/PLAN.md         POC execution plan
+docs/pascal-injection-poc/PHASE_7_PLAN.md Phase 7 (hook engine) plan
 docs/pascal-injection-poc/NEXT_STEPS.md   This file
 Source/hook/simba_gl_hook.lpr             Library declaration
 Source/hook/simba_gl_hook.lpi             Lazarus project (Win64 DLL)
-Source/hook/dllmain.pas                   DllMain logger + Probe export
+Source/hook/dllmain.pas                   DllMain + env reporter +
+                                          self-test + wgl_hook prep
+Source/hook/hook_engine.pas               Inline hook + trampoline engine
 Source/hook/simba_hook.rc                 Resource script
 Source/hook/simba_hook.res                Compiled resource (binary)
-Source/hook/simba_gl_hook.dll             The built DLL (binary)
 Source/simba.inject.pas                   Pascal injector
 Source/test/inject/test_inject.lpr        Standalone test exe
 Source/test/inject/test_inject.lpi        Test project

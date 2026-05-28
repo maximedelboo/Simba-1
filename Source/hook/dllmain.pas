@@ -17,6 +17,28 @@ procedure Probe(hwnd: HWND; hinst: HMODULE; lpszCmdLine: PAnsiChar;
 
 implementation
 
+uses
+  hook_engine;
+
+// First 5 bytes of wglSwapBuffers on current Windows
+// (`mov [rsp+0x08], rbx`), captured from live RuneLite. Used as the
+// install-time sanity gate so a future Windows update changing the
+// function's prologue fails-safe instead of corrupting opengl32.dll.
+// 5 bytes rather than 14 deliberately: bytes 6..13 may be legitimately
+// patched by overlay hooks already running in the host (Discord, Steam,
+// OBS), and we don't want to refuse install in that scenario.
+const
+  EXPECTED_PROLOGUE: array[0..4] of Byte = ($48, $89, $5C, $24, $08);
+
+var
+  // Holds the wglSwapBuffers hook handle once installed. Untouched on the
+  // default code path because installation is gated behind an env var.
+  GWglHook: THookHandle;
+  // Scratch error string for the finalization block, which has no scope
+  // for locals. Lives at unit scope so the uninstall call has somewhere to
+  // write its diagnostic.
+  GFinErr: string;
+
 // PSAPI exports for enumerating loaded modules in the host process.
 function EnumProcessModules(hProcess: THandle; lphModule: Pointer;
   cb: DWORD; var lpcbNeeded: DWORD): BOOL; stdcall;
@@ -68,12 +90,6 @@ begin
   except
     // Swallow everything; a host-process DLL must not propagate exceptions.
   end;
-end;
-
-procedure Probe(hwnd: HWND; hinst: HMODULE; lpszCmdLine: PAnsiChar;
-                nCmdShow: Integer); stdcall;
-begin
-  WriteLog('Probe called');
 end;
 
 // Dump the first 32 bytes of a target function so the future trampoline
@@ -162,11 +178,208 @@ begin
       GetProcAddress(GetModuleHandleW('gdi32.dll'), 'SwapBuffers'));
 end;
 
+// In-DLL self-test for hook_engine. Both functions are hand-written in
+// inline assembly so their first 14 bytes are guaranteed to be complete,
+// relocatable instructions: push rbp (1) + mov rbp,rsp (3) + 10*nop (10)
+// = 14 = HOOK_PATCH_SIZE. A naive Pascal function compiled by FPC may
+// have a prologue whose 14th byte falls mid-instruction, which would
+// corrupt the trampoline. ASMMODE INTEL is scoped to this region so it
+// doesn't infect future asm elsewhere in the unit.
+{$PUSH}{$ASMMODE INTEL}
+function TestTarget(x: Integer): Integer; stdcall; assembler; nostackframe;
+asm
+  push rbp
+  mov  rbp, rsp
+  nop; nop; nop; nop; nop; nop; nop; nop; nop; nop
+  mov  eax, ecx
+  add  eax, 42
+  pop  rbp
+  ret
+end;
+
+function TestReplacement(x: Integer): Integer; stdcall; assembler; nostackframe;
+asm
+  push rbp
+  mov  rbp, rsp
+  nop; nop; nop; nop; nop; nop; nop; nop; nop; nop
+  mov  eax, ecx
+  add  eax, 99
+  pop  rbp
+  ret
+end;
+{$POP}
+
+type
+  TTestFn = function(x: Integer): Integer; stdcall;
+
+// Exercise HookEngine_Install + trampoline call + HookEngine_Uninstall
+// against TestTarget. Returns 'PASS' or 'FAIL: <which>: got=N expected=M'.
+function TestHookEngine(): string;
+var
+  H: THookHandle;
+  err: string;
+  Got: Integer;
+begin
+  // Dump prologue first so the log captures ground truth before any
+  // patching happens — invaluable when diagnosing hook failures.
+  ReportFunctionAt('TestTarget', @TestTarget);
+
+  Got := TestTarget(10);            // 10 + 42 = 52
+  if Got <> 52 then
+    Exit(Format('FAIL: baseline: got=%d expected=52', [Got]));
+
+  if not HookEngine_Install(@TestTarget, @TestReplacement, [], H, err) then
+    Exit('FAIL: install: ' + err);
+
+  Got := TestTarget(10);            // 10 + 99 = 109 once hooked
+  if Got <> 109 then
+  begin
+    if not HookEngine_Uninstall(H, err) then
+      WriteLog('TestHookEngine: cleanup uninstall failed: ' + err);
+    Exit(Format('FAIL: hooked: got=%d expected=109', [Got]));
+  end;
+
+  Got := TTestFn(H.Trampoline)(10); // trampoline preserves original, =52
+  if Got <> 52 then
+  begin
+    if not HookEngine_Uninstall(H, err) then
+      WriteLog('TestHookEngine: cleanup uninstall failed: ' + err);
+    Exit(Format('FAIL: trampoline: got=%d expected=52', [Got]));
+  end;
+
+  if not HookEngine_Uninstall(H, err) then
+    Exit('FAIL: uninstall: ' + err);
+
+  Got := TestTarget(10);            // back to 52 after uninstall
+  if Got <> 52 then
+    Exit(Format('FAIL: post-uninstall: got=%d expected=52', [Got]));
+
+  Result := 'PASS';
+end;
+
+// Replacement for opengl32!wglSwapBuffers. The default code path never
+// installs this hook (PrepareWglHook is gated on SIMBA_HOOK_INSTALL=1), so
+// in normal operation the function is dead code. When the gate is opened
+// for testing, it simply forwards to the trampoline.
+//
+// Per-frame work (e.g. frame counters, IPC notifications) is intentionally
+// omitted: at 60+ fps the WriteLog path would saturate disk IO and slow
+// the host. A production version would push into a ring buffer or signal
+// an event; for now the body stays minimal.
+function WglSwapBuffersHook(hdc: HDC): BOOL; stdcall;
+type
+  PWglSwapBuffersFn = function(hdc: HDC): BOOL; stdcall;
+var
+  OrigFn: PWglSwapBuffersFn;
+begin
+  OrigFn := PWglSwapBuffersFn(GWglHook.Trampoline);
+  Result := OrigFn(hdc);
+end;
+
+// Locate wglSwapBuffers, verify its prologue, and (only if explicitly
+// opted in via SIMBA_HOOK_INSTALL=1) install the hook. The default behavior
+// is *non-destructive*: log what would be patched and return without
+// touching the target. This keeps the DLL safe to inject into any process
+// for diagnostic runs.
+procedure PrepareWglHook();
+var
+  OpenGL: HMODULE;
+  Addr: Pointer;
+  Actual: PByte;
+  I, J: Integer;
+  Mismatch: Boolean;
+  ExpectedHex, ActualHex: string;
+  err: string;
+begin
+  OpenGL := GetModuleHandleW('opengl32.dll');
+  if OpenGL = 0 then
+  begin
+    WriteLog('wgl_hook: opengl32.dll not loaded');
+    Exit;
+  end;
+
+  Addr := GetProcAddress(OpenGL, 'wglSwapBuffers');
+  if Addr = nil then
+  begin
+    WriteLog('wgl_hook: wglSwapBuffers not exported');
+    Exit;
+  end;
+
+  Actual := PByte(Addr);
+  Mismatch := False;
+  for I := 0 to High(EXPECTED_PROLOGUE) do
+    if Actual[I] <> EXPECTED_PROLOGUE[I] then
+    begin
+      Mismatch := True;
+      Break;
+    end;
+
+  if Mismatch then
+  begin
+    ExpectedHex := '';
+    ActualHex := '';
+    for J := 0 to High(EXPECTED_PROLOGUE) do
+    begin
+      if J > 0 then
+      begin
+        ExpectedHex := ExpectedHex + ' ';
+        ActualHex := ActualHex + ' ';
+      end;
+      ExpectedHex := ExpectedHex + IntToHex(EXPECTED_PROLOGUE[J], 2);
+      ActualHex := ActualHex + IntToHex(Actual[J], 2);
+    end;
+    WriteLog(Format(
+      'wgl_hook: prologue mismatch; refusing to install (expected=%s actual=%s)',
+      [ExpectedHex, ActualHex]));
+    Exit;
+  end;
+
+  WriteLog(Format('wgl_hook: prologue verified, ready to install (addr=0x%p)',
+    [Addr]));
+
+  // Note on race: HookEngine_Install re-reads the prologue and copies 14
+  // bytes from Target verbatim. A concurrent third-party hook (Discord
+  // overlay, Steam overlay, OBS, etc.) installing between our check above
+  // and the engine's copy could leave bytes 5..13 modified — our trampoline
+  // would then chain into that hook rather than the original. The engine's
+  // own re-check catches the first 5 bytes; full atomicity is not
+  // achievable without suspending all host threads.
+  //
+  // Env-var context: this DLL executes inside the host process (injected
+  // via LoadLibraryW), so GetEnvironmentVariable reads the *host's*
+  // environment block. SIMBA_HOOK_INSTALL must be set before launching the
+  // host process, not before launching Simba.
+  if GetEnvironmentVariable('SIMBA_HOOK_INSTALL') = '1' then
+  begin
+    if HookEngine_Install(Addr, @WglSwapBuffersHook, EXPECTED_PROLOGUE,
+                          GWglHook, err) then
+      WriteLog(Format('wgl_hook: installed (trampoline=0x%p)',
+        [GWglHook.Trampoline]))
+    else
+      WriteLog('wgl_hook: install failed: ' + err);
+  end
+  else
+    WriteLog('wgl_hook: gated; set SIMBA_HOOK_INSTALL=1 to actually patch');
+end;
+
+procedure Probe(hwnd: HWND; hinst: HMODULE; lpszCmdLine: PAnsiChar;
+                nCmdShow: Integer); stdcall;
+begin
+  WriteLog('Probe called');
+  WriteLog('hook_engine_test: ' + TestHookEngine());
+end;
+
 initialization
   WriteLog('attach');
   ReportEnvironment();
+  PrepareWglHook();
 
 finalization
+  if GWglHook.Installed then
+  begin
+    if not HookEngine_Uninstall(GWglHook, GFinErr) then
+      WriteLog('wgl_hook: uninstall on detach failed: ' + GFinErr);
+  end;
   WriteLog('detach');
 
 end.

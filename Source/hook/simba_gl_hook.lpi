@@ -35,6 +35,11 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="dllmain"/>
       </Unit>
+      <Unit>
+        <Filename Value="hook_engine.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="hook_engine"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
