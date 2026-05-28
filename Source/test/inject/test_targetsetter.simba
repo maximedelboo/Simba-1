@@ -1,0 +1,10 @@
+program TestTargetSetter;
+
+// Calls Target.SetWindow with RuneLite's HWND to exercise the script-side
+// chokepoint that Phase 8 wires. The hook DLL should auto-inject into
+// RuneLite; verify via %TEMP%\simba_hook.log.
+
+begin
+  Target.SetWindow(54924712);
+  Sleep(3000);
+end.

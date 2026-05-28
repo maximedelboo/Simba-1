@@ -7,6 +7,9 @@ program Simba;
 
 {$I simba.inc}
 {$R simba.res}
+{$IFDEF WINDOWS}
+{$R hook/simba_hook.res}
+{$ENDIF}
 
 uses
   {$IFDEF SIMBA_CUSTOM_MM} // note: comment out if needing heaptrc
@@ -28,7 +31,10 @@ uses
   simba.form_functionlist, simba.form_output,
   // DXGI Desktop Duplication capture backend. The sole window-capture
   // path on this build. See docs/dxgi-capture-backend/PLAN.md.
-  simba.capture_dxgi;
+  simba.capture_dxgi,
+  // OpenGL render-thread hook injector. Auto-fires when a window
+  // target is set. See docs/pascal-injection-poc/NEXT_STEPS.md.
+  simba.capture_glhook;
 
 begin
   {$IF DECLARED(HEAPTRC)}
