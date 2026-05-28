@@ -1,0 +1,47 @@
+program BenchCapture;
+
+// Times Target.GetImage() in a tight loop against a RuneLite target that
+// already has the GL-hook DLL injected. Reports median, p50, p99 ms.
+
+const
+  ITERATIONS = 200;
+
+var
+  Times: array of Double;
+  i: Integer;
+  t0, t1: Double;
+  Img: TImage;
+  Total, Median, P99, MinV, MaxV: Double;
+
+begin
+  Target.SetWindow(18290164);
+  Sleep(500);
+
+  // Warm-up: first call has open-mapping cost, exclude.
+  Img := Target.GetImage();
+
+  SetLength(Times, ITERATIONS);
+  for i := 0 to ITERATIONS - 1 do
+  begin
+    t0 := PerformanceTime();
+    Img := Target.GetImage();
+    t1 := PerformanceTime();
+    Times[i] := (t1 - t0);
+  end;
+
+  Total := 0;
+  MinV := Times[0];
+  MaxV := Times[0];
+  for i := 0 to ITERATIONS - 1 do
+  begin
+    Total := Total + Times[i];
+    if Times[i] < MinV then MinV := Times[i];
+    if Times[i] > MaxV then MaxV := Times[i];
+  end;
+
+  WriteLn(Format('Captured %dx%d (%d iterations)', [Img.Width, Img.Height, ITERATIONS]));
+  WriteLn(Format('  avg:  %.3f ms', [Total / ITERATIONS]));
+  WriteLn(Format('  min:  %.3f ms', [MinV]));
+  WriteLn(Format('  max:  %.3f ms', [MaxV]));
+  WriteLn(Format('  rate: %.1f fps', [1000.0 / (Total / ITERATIONS)]));
+end.

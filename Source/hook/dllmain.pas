@@ -420,9 +420,10 @@ end;
 // Read the current GL_BACK buffer into shared memory. Must be called
 // BEFORE the trampoline call: once SwapBuffers returns, GL_BACK's
 // contents are undefined.
-procedure CaptureCurrentFrame();
+procedure CaptureCurrentFrame(hdc: HDC);
 var
-  vp: array[0..3] of Integer;  // x, y, w, h
+  wnd: HWND;
+  rc: Windows.TRect;
   W, H, Stride, Y: Integer;
   Pixels: PByte;
   LineBuf: array of Byte;
@@ -435,11 +436,16 @@ begin
     if not GShmInited then Exit;
   end;
 
-  // glGetIntegerv(GL_VIEWPORT) returns x,y,w,h of the active viewport.
-  // RuneLite resets this every frame to match its client area.
-  glGetIntegerv(GL_VIEWPORT, @vp[0]);
-  W := vp[2];
-  H := vp[3];
+  // Use the drawable size (window client rect) rather than GL_VIEWPORT --
+  // RuneLite changes the viewport multiple times per logical frame to
+  // render UI sub-surfaces, so capturing whatever viewport happens to be
+  // active at SwapBuffers time gives us inconsistent fragment sizes.
+  // The HDC's owning window's client rect is the framebuffer dimension,
+  // stable across all swaps on the same context.
+  wnd := WindowFromDC(hdc);
+  if (wnd = 0) or (not GetClientRect(wnd, rc)) then Exit;
+  W := rc.Right - rc.Left;
+  H := rc.Bottom - rc.Top;
   if (W <= 0) or (H <= 0) then Exit;
   Stride := W * 4;
 
@@ -503,7 +509,7 @@ begin
   // Wrapped in try/except because a faulting capture must not take down
   // the host's render thread.
   try
-    CaptureCurrentFrame();
+    CaptureCurrentFrame(hdc);
   except
     // Swallow: the host process must keep running even if our capture
     // hits an unexpected GL state.
