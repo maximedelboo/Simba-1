@@ -179,10 +179,10 @@ begin
 end;
 
 // In-DLL self-test for hook_engine. Both functions are hand-written in
-// inline assembly so their first 14 bytes are guaranteed to be complete,
-// relocatable instructions: push rbp (1) + mov rbp,rsp (3) + 10*nop (10)
-// = 14 = HOOK_PATCH_SIZE. A naive Pascal function compiled by FPC may
-// have a prologue whose 14th byte falls mid-instruction, which would
+// inline assembly so their first 15 bytes are guaranteed to be complete,
+// relocatable instructions: push rbp (1) + mov rbp,rsp (3) + 11*nop (11)
+// = 15 = HOOK_PATCH_SIZE. A naive Pascal function compiled by FPC may
+// have a prologue whose 15th byte falls mid-instruction, which would
 // corrupt the trampoline. ASMMODE INTEL is scoped to this region so it
 // doesn't infect future asm elsewhere in the unit.
 {$PUSH}{$ASMMODE INTEL}
@@ -190,7 +190,7 @@ function TestTarget(x: Integer): Integer; stdcall; assembler; nostackframe;
 asm
   push rbp
   mov  rbp, rsp
-  nop; nop; nop; nop; nop; nop; nop; nop; nop; nop
+  nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop
   mov  eax, ecx
   add  eax, 42
   pop  rbp
@@ -201,7 +201,7 @@ function TestReplacement(x: Integer): Integer; stdcall; assembler; nostackframe;
 asm
   push rbp
   mov  rbp, rsp
-  nop; nop; nop; nop; nop; nop; nop; nop; nop; nop
+  nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop
   mov  eax, ecx
   add  eax, 99
   pop  rbp
@@ -257,23 +257,36 @@ begin
   Result := 'PASS';
 end;
 
-// Replacement for opengl32!wglSwapBuffers. The default code path never
-// installs this hook (PrepareWglHook is gated on SIMBA_HOOK_INSTALL=1), so
-// in normal operation the function is dead code. When the gate is opened
-// for testing, it simply forwards to the trampoline.
-//
-// Per-frame work (e.g. frame counters, IPC notifications) is intentionally
-// omitted: at 60+ fps the WriteLog path would saturate disk IO and slow
-// the host. A production version would push into a ring buffer or signal
-// an event; for now the body stays minimal.
+var
+  // Frame counter for the wglSwapBuffers hook. Atomic increment; logged
+  // every LOG_EVERY_N frames so the log stays readable at 60+ fps.
+  GFrameCount: Int64 = 0;
+
+const
+  LOG_EVERY_N = 60;
+
+// Replacement for opengl32!wglSwapBuffers. Runs on the host's render
+// thread once per frame. Forwards to the trampoline (which executes the
+// original prologue and jumps back into the rest of the real function),
+// then bumps a frame counter and logs every 60th frame so we have visible
+// proof the hook is firing.
 function WglSwapBuffersHook(hdc: HDC): BOOL; stdcall;
 type
   PWglSwapBuffersFn = function(hdc: HDC): BOOL; stdcall;
 var
   OrigFn: PWglSwapBuffersFn;
+  N: Int64;
 begin
   OrigFn := PWglSwapBuffersFn(GWglHook.Trampoline);
+  if OrigFn = nil then
+  begin
+    Result := False;
+    Exit;
+  end;
   Result := OrigFn(hdc);
+  N := InterlockedIncrement64(GFrameCount);
+  if (N mod LOG_EVERY_N) = 0 then
+    WriteLog(Format('wgl_hook: frame %d (hdc=0x%p)', [N, Pointer(hdc)]));
 end;
 
 // Locate wglSwapBuffers, verify its prologue, and (only if explicitly
@@ -334,32 +347,22 @@ begin
     Exit;
   end;
 
-  WriteLog(Format('wgl_hook: prologue verified, ready to install (addr=0x%p)',
+  WriteLog(Format('wgl_hook: prologue verified, installing (addr=0x%p)',
     [Addr]));
 
   // Note on race: HookEngine_Install re-reads the prologue and copies 14
   // bytes from Target verbatim. A concurrent third-party hook (Discord
-  // overlay, Steam overlay, OBS, etc.) installing between our check above
-  // and the engine's copy could leave bytes 5..13 modified — our trampoline
-  // would then chain into that hook rather than the original. The engine's
-  // own re-check catches the first 5 bytes; full atomicity is not
-  // achievable without suspending all host threads.
-  //
-  // Env-var context: this DLL executes inside the host process (injected
-  // via LoadLibraryW), so GetEnvironmentVariable reads the *host's*
-  // environment block. SIMBA_HOOK_INSTALL must be set before launching the
-  // host process, not before launching Simba.
-  if GetEnvironmentVariable('SIMBA_HOOK_INSTALL') = '1' then
-  begin
-    if HookEngine_Install(Addr, @WglSwapBuffersHook, EXPECTED_PROLOGUE,
-                          GWglHook, err) then
-      WriteLog(Format('wgl_hook: installed (trampoline=0x%p)',
-        [GWglHook.Trampoline]))
-    else
-      WriteLog('wgl_hook: install failed: ' + err);
-  end
+  // overlay, Steam overlay, OBS) installing between our check above and
+  // the engine's copy could leave bytes 5..13 modified — our trampoline
+  // would then chain into that hook rather than the original. The
+  // engine's own re-check catches the first 5 bytes; full atomicity is
+  // not achievable without suspending all host threads.
+  if HookEngine_Install(Addr, @WglSwapBuffersHook, EXPECTED_PROLOGUE,
+                        GWglHook, err) then
+    WriteLog(Format('wgl_hook: installed (trampoline=0x%p)',
+      [GWglHook.Trampoline]))
   else
-    WriteLog('wgl_hook: gated; set SIMBA_HOOK_INSTALL=1 to actually patch');
+    WriteLog('wgl_hook: install failed: ' + err);
 end;
 
 procedure Probe(hwnd: HWND; hinst: HMODULE; lpszCmdLine: PAnsiChar;

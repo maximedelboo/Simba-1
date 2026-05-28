@@ -13,10 +13,13 @@ uses
   Windows;
 
 const
-  // 12 bytes of `movabs rax, imm64; jmp rax` + 2 NOPs = 14 bytes. The two
-  // trailing NOPs make the patch size deterministic, matching the
-  // prologue region we claim from the target.
-  HOOK_PATCH_SIZE = 14;
+  // 12 bytes of `movabs rax, imm64; jmp rax` + 3 NOPs = 15 bytes. Sized at
+  // 15 (not 14) so the patch fully covers opengl32!wglSwapBuffers' first
+  // four instructions (mov [rsp+8],rbx; mov [rsp+0x10],rsi; push rdi;
+  // sub rsp,0x40 = 5+5+1+4 = 15 bytes). A 14-byte patch would cut the
+  // imm8 of `sub rsp,0x40` mid-instruction and the trampoline would
+  // execute garbage on byte 14.
+  HOOK_PATCH_SIZE = 15;
 
 type
   THookHandle = record
@@ -90,10 +93,10 @@ begin
   Result := Format('%s failed (code %d): %s', [What, E, SysErrorMessage(E)]);
 end;
 
-// Write a 14-byte absolute jump at Dest that targets JmpTarget:
-//   48 B8 <imm64>  movabs rax, JmpTarget
-//   FF E0          jmp rax
-//   90 90          padding to 14 bytes
+// Write a 15-byte absolute jump at Dest that targets JmpTarget:
+//   48 B8 <imm64>  movabs rax, JmpTarget   (10 bytes)
+//   FF E0          jmp rax                  (2 bytes)
+//   90 90 90       padding to 15 bytes      (3 NOPs)
 procedure WriteAbsJump(Dest: Pointer; JmpTarget: Pointer);
 var
   Buf: array[0..HOOK_PATCH_SIZE - 1] of Byte;
@@ -107,6 +110,7 @@ begin
   Buf[11] := $E0;
   Buf[12] := $90;
   Buf[13] := $90;
+  Buf[14] := $90;
   Move(Buf[0], Dest^, HOOK_PATCH_SIZE);
 end;
 
