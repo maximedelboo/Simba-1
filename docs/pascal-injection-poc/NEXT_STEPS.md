@@ -35,29 +35,73 @@ In rough order of "do this next" → "do this last":
 
 ### 1. Inline hook engine inside the DLL
 
-The capture path needs to intercept `wglSwapBuffers` (and probably
-`SwapBuffers` for completeness) in the target process. The engine needs to:
+The capture path needs to intercept `wglSwapBuffers` in the target process.
+Concrete prologue data captured from live RuneLite (PID 14944):
 
-- Resolve the target function's address (`GetProcAddress` on `opengl32.dll`).
-- Read the first N bytes of its prologue.
-- Use a length disassembler to determine how many complete instructions cover
-  at least 5 bytes (for a short JMP) or 14 bytes (for a `mov rax, imm64 / jmp
-  rax` absolute jump).
-- Allocate a trampoline page (`VirtualAlloc`, `PAGE_EXECUTE_READWRITE`).
-- Copy the original prologue bytes to the trampoline, followed by a JMP back
-  to the original function past the prologue.
-- Patch the original function's first bytes with a JMP to our hook.
-- `FlushInstructionCache` to be safe.
+```
+wglSwapBuffers @ 0x00007FFFC0140630:
+  48 89 5C 24 08      mov  [rsp+0x08], rbx     ; 5 bytes
+  48 89 74 24 10      mov  [rsp+0x10], rsi     ; 5 bytes
+  57                  push rdi                 ; 1 byte
+  48 83 EC 40         sub  rsp, 0x40           ; 4 bytes
+  48 8B F1            mov  rsi, rcx            ; 3 bytes  (byte 15-17)
+  ...
+```
 
-Two paths to the length disassembler:
+The first **15 bytes are 4 complete instructions, none RIP-relative**.
+Patching the first 14 bytes with an absolute `movabs rax, imm64 / jmp rax`
+sequence works without needing a general-purpose length disassembler —
+just verify these specific bytes match what we expect (sanity check) and
+copy them verbatim to the trampoline. This is *substantially* simpler than
+the design I sketched earlier.
 
-- **Vendor DDetours** (`https://github.com/MahdiSafsafi/DDetours`, MIT,
-  pure Pascal, x86 + x64). The fastest path to a working trampoline. Single
-  unit, drop into `Source/hook/` or `Third-Party/`. Recommended for the POC
-  extension.
-- **Hand-roll a minimal LDE64 port**. ~400 lines covering enough opcodes for
-  typical Win32 prologues. More work but no third-party dependency. Defer
-  unless DDetours' license becomes a problem.
+`wglSwapLayerBuffers` (also dumped from live RuneLite) starts with:
+```
+  48 89 5C 24 18      mov  [rsp+0x18], rbx
+  55                  push rbp
+  56                  push rsi
+  57                  push rdi
+  48 83 EC 70         sub  rsp, 0x70
+  48 8B 05 ... ...    mov  rax, [rip+disp32]   ; RIP-relative (byte 13+)
+```
+First 12 bytes are clean (4 complete safe instructions). Byte 13 starts a
+RIP-relative instruction so a 14-byte patch would clobber its disp32 — but
+12 bytes is enough for a `push imm64 / jmp [rsp]` sequence if needed, OR we
+skip `wglSwapLayerBuffers` entirely and hook only `wglSwapBuffers` (which
+is what LWJGL/rlawt actually use).
+
+`SwapBuffers` in `gdi32.dll` is a thunk (`FF 25 disp32` jmp-indirect to a
+real implementation) — don't hook there; opengl32 calls bypass the thunk.
+
+**Recommended hook approach** (revised based on the prologue data):
+
+1. Verify `wglSwapBuffers` first 5 bytes match the expected `48 89 5C 24 08`
+   prologue. If not (Microsoft changed opengl32 on a newer Windows), bail
+   out with a clear error rather than risk silently corrupting the
+   function.
+2. `VirtualProtect` 14 bytes of the function to `PAGE_EXECUTE_READWRITE`.
+3. Allocate a 64-byte trampoline page (`VirtualAlloc`, `RWX`).
+4. Copy the original 14 bytes verbatim to the trampoline.
+5. Append a 14-byte absolute jump (`48 B8 <orig+14> FF E0`) to the
+   trampoline so it returns to mid-function after running the displaced
+   prologue.
+6. Write a 14-byte absolute jump (`48 B8 <hook> FF E0`) over the original
+   function's first 14 bytes.
+7. Restore the original protection on the function.
+8. `FlushInstructionCache`.
+
+The hook function calls the trampoline (which executes the original
+prologue then jumps back into the rest of the original) to continue normal
+behavior, OR returns whatever's appropriate. For a capture hook the body
+runs the original then does its post-swap work.
+
+**Total LoC for this minimal engine: ~120 lines of Pascal.** No
+disassembler, no DDetours dependency, no length analysis. If future
+Windows updates change the prologue, the sanity check at step 1 catches
+it and we bump the supported version explicitly.
+
+The general-purpose disassembler path (DDetours or LDE64 port) is still
+worth doing for robustness, but it's no longer on the critical path.
 
 ### 2. OpenGL ↔ D3D11 interop via WGL_NV_DX_interop2
 

@@ -76,6 +76,37 @@ begin
   WriteLog('Probe called');
 end;
 
+// Dump the first 32 bytes of a target function so the future trampoline
+// engine has concrete prologue data to plan against. The function lives in
+// another DLL's .text section (already RX), so no VirtualProtect is needed
+// for this read-only dump.
+procedure ReportFunctionAt(const Name: string; Addr: Pointer);
+const
+  DumpBytes = 32;
+var
+  P: PByte;
+  Hex: string;
+  I: Integer;
+begin
+  if Addr = nil then
+  begin
+    WriteLog(Format('%s=nil (not exported)', [Name]));
+    Exit;
+  end;
+  P := PByte(Addr);
+  Hex := '';
+  try
+    for I := 0 to DumpBytes - 1 do
+    begin
+      if I > 0 then Hex := Hex + ' ';
+      Hex := Hex + IntToHex(P[I], 2);
+    end;
+  except
+    Hex := Hex + ' <read fault>';
+  end;
+  WriteLog(Format('%s=0x%p prologue=%s', [Name, Addr, Hex]));
+end;
+
 // Report the host process's image name and presence of modules we'd need to
 // hook for OpenGL capture. Cheap reconnaissance for the next phase.
 procedure ReportEnvironment();
@@ -121,12 +152,14 @@ begin
      BoolToStr(HasD3D11, True)]));
 
   if HasOpenGL then
-  begin
-    // If opengl32.dll is loaded, report the address of wglSwapBuffers — this
-    // is the function our future trampoline engine will need to patch.
-    WriteLog(Format('wglSwapBuffers=0x%p',
-      [GetProcAddress(GetModuleHandleW('opengl32.dll'), 'wglSwapBuffers')]));
-  end;
+    ReportFunctionAt('wglSwapBuffers',
+      GetProcAddress(GetModuleHandleW('opengl32.dll'), 'wglSwapBuffers'));
+  if HasOpenGL then
+    ReportFunctionAt('wglSwapLayerBuffers',
+      GetProcAddress(GetModuleHandleW('opengl32.dll'), 'wglSwapLayerBuffers'));
+  if HasD3D11 then
+    ReportFunctionAt('SwapBuffers (gdi32)',
+      GetProcAddress(GetModuleHandleW('gdi32.dll'), 'SwapBuffers'));
 end;
 
 initialization
