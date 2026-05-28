@@ -6,20 +6,28 @@ A Pascal-compiled DLL can be:
 1. Built from Simba's tree via lazbuild (no external toolchain).
 2. Embedded as `RCDATA` in another Pascal exe via `windres` + `{$R}`.
 3. Extracted from that exe's resources at runtime, written to a temp file,
-   and loaded into a third-party process (Notepad) via `CreateRemoteThread` +
+   and loaded into a third-party process via `CreateRemoteThread` +
    `LoadLibraryW`.
 4. Successfully initialized inside the foreign process: FPC's RTL came up
-   cleanly, `SysUtils` / `Windows` / file IO all worked, the unit's
-   `initialization` and `finalization` blocks ran on the right loader threads.
+   cleanly, `SysUtils` / `Windows` / file IO / PSAPI module enumeration all
+   worked, the unit's `initialization` and `finalization` blocks ran on the
+   right loader threads.
 
-End-to-end evidence: `%TEMP%\simba_hook.log` now appears after injection with
-the correct target PID, TID, and module base. Target process survives both
-attach and detach.
+End-to-end evidence: `%TEMP%\simba_hook.log` after injection shows correct
+target PID, TID, module base, host exe path, and a count of loaded modules
+in the host. Target process survives both attach and detach.
 
-This validates the load-bearing assumption of the whole "OBS-style game
-capture in pure Pascal" project: **FPC RTL works in an injected DLL with
-standard LoadLibrary semantics**. The single biggest unknown at the start of
-the project is now a known.
+**Validated against two host processes:**
+
+| Host | Modules | opengl32 | jvm | d3d11 | Survived inject |
+|---|---:|:---:|:---:|:---:|:---:|
+| Notepad | 43 | False | False | False | yes |
+| **RuneLite (live, GPU plugin on)** | **143** | **True** | **True** | **True** | **yes** |
+
+For RuneLite the hook also resolved `wglSwapBuffers` to
+`0x00007FFFC0140630` — the exact address the future trampoline engine
+will patch. The single biggest unknown of the whole project ("does FPC
+RTL come up cleanly in a JVM-hosted host?") is now a known good.
 
 ## What's left to do (high-level)
 
