@@ -171,7 +171,8 @@ uses
   simba.dialog,
   simba.vartype_string,
   simba.vartype_windowhandle,
-  simba.ide_controller;
+  simba.ide_controller,
+  simba.remoteinput_autopair;
 
 procedure TSimbaScriptTabRunner.DoOutputThread;
 var
@@ -245,6 +246,12 @@ begin
   FProcess.Parameters.AddStrings(Args);
   if (FScriptFile <> '') then
     FProcess.Parameters.Add(FScriptFile);
+
+  // Release the IDE's libremoteinput pair (both the local Target struct
+  // AND the JVM-agent claim via EIOS_ReleaseClient) before spawning the
+  // script subprocess so its WaspLib fakeinput.Setup can pair freely.
+  RemoteInputRelease();
+
   FProcess.Execute();
 
   FOutputThread := RunInThread(@DoOutputThread);

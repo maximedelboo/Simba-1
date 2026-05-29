@@ -58,9 +58,11 @@ type
   TEIOS_Inject_PID    = function(PID: UInt32): UInt32; cdecl;
   TEIOS_PairClient    = function(PID: UInt32): Pointer; cdecl;
   TEIOS_ReleaseTarget = procedure(Target: Pointer); cdecl;
+  TEIOS_ReleaseClient = procedure(PID: UInt32); cdecl;
   TEIOS_GetTargetDimensions = procedure(Target: Pointer; out Width, Height: Int32); cdecl;
   TEIOS_GetImageBuffer      = function(Target: Pointer): PByte; cdecl;
   TEIOS_UpdateImageBuffer   = procedure(Target: Pointer); cdecl;
+  TEIOS_KillZombieClients   = procedure(); cdecl;
 
 var
   LibHandle: TLibHandle = 0;
@@ -69,9 +71,11 @@ var
   _EIOS_Inject_PID:          TEIOS_Inject_PID;
   _EIOS_PairClient:          TEIOS_PairClient;
   _EIOS_ReleaseTarget:       TEIOS_ReleaseTarget;
+  _EIOS_ReleaseClient:       TEIOS_ReleaseClient;
   _EIOS_GetTargetDimensions: TEIOS_GetTargetDimensions;
   _EIOS_GetImageBuffer:      TEIOS_GetImageBuffer;
   _EIOS_UpdateImageBuffer:   TEIOS_UpdateImageBuffer;
+  _EIOS_KillZombieClients:   TEIOS_KillZombieClients;
 
   // Per-process pairing state
   PairedWindow: TWindowHandle = 0;
@@ -111,9 +115,11 @@ begin
   _EIOS_Inject_PID          := TEIOS_Inject_PID(GetProcAddress(LibHandle, 'EIOS_Inject_PID'));
   _EIOS_PairClient          := TEIOS_PairClient(GetProcAddress(LibHandle, 'EIOS_PairClient'));
   _EIOS_ReleaseTarget       := TEIOS_ReleaseTarget(GetProcAddress(LibHandle, 'EIOS_ReleaseTarget'));
+  _EIOS_ReleaseClient       := TEIOS_ReleaseClient(GetProcAddress(LibHandle, 'EIOS_ReleaseClient'));
   _EIOS_GetTargetDimensions := TEIOS_GetTargetDimensions(GetProcAddress(LibHandle, 'EIOS_GetTargetDimensions'));
   _EIOS_GetImageBuffer      := TEIOS_GetImageBuffer(GetProcAddress(LibHandle, 'EIOS_GetImageBuffer'));
   _EIOS_UpdateImageBuffer   := TEIOS_UpdateImageBuffer(GetProcAddress(LibHandle, 'EIOS_UpdateImageBuffer'));
+  _EIOS_KillZombieClients   := TEIOS_KillZombieClients(GetProcAddress(LibHandle, 'EIOS_KillZombieClients'));
 
   Result := Assigned(_EIOS_Inject_PID) and Assigned(_EIOS_PairClient) and
             Assigned(_EIOS_GetTargetDimensions) and Assigned(_EIOS_GetImageBuffer) and
@@ -135,15 +141,38 @@ begin
 end;
 
 procedure RemoteInputRelease();
+var
+  Pid: TProcessID;
 begin
+  Pid := PairedPID;
+
+  // EIOS_ReleaseTarget frees the local Target struct in *this* process.
+  // EIOS_ReleaseClient is what tells the JVM-side agent to forget that
+  // this PID is paired -- without it the agent thinks we still own the
+  // slot and rejects any subsequent pair attempt (from us, from a
+  // sibling subprocess, or from WaspLib's fakeinput) with AV.
   if (PairedTarget <> nil) and Assigned(_EIOS_ReleaseTarget) then
   begin
     try
       _EIOS_ReleaseTarget(PairedTarget);
     except
-      // best effort — the JVM may already be gone
     end;
   end;
+  if (Pid <> 0) and Assigned(_EIOS_ReleaseClient) then
+  begin
+    try
+      _EIOS_ReleaseClient(Pid);
+    except
+    end;
+  end;
+  if Assigned(_EIOS_KillZombieClients) then
+  begin
+    try
+      _EIOS_KillZombieClients();
+    except
+    end;
+  end;
+
   PairedTarget := nil;
   PairedPID    := 0;
   PairedWindow := 0;
@@ -154,15 +183,6 @@ var
   PID: TProcessID;
   Deadline: QWord;
 begin
-  // Skip autopair in the IDE process. Pairing here would claim the JVM
-  // agent slot with the IDE's libremoteinput DLL instance; when a script
-  // subprocess later runs WaspLib's fakeinput.Setup, its Target.SetPlugin
-  // call (which is libremoteinput's second internal pair attempt) AVs
-  // against the IDE's claim. Net result: every first run after picking a
-  // target crashes. Trade-off: ACA / DTM editor / debug viewer in the
-  // IDE go back to BitBlt for GPU-rendered windows.
-  if SimbaProcessType = ESimbaProcessType.IDE then Exit;
-
   // Re-pair only when the window actually changes.
   if Window = PairedWindow then Exit;
 
