@@ -383,7 +383,7 @@ begin
   try
     Stream := TFileStream.Create(FileName, fmOpenRead or fmShareDenyNone);
     if (Len = -1) then
-      Len := $FFFFFF;
+      Len := MaxInt;
     SetLength(Bytes, Min(Len, Stream.Size - Offset));
     if (Length(Bytes) > 0) then
     begin
