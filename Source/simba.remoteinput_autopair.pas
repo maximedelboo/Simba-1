@@ -154,6 +154,15 @@ var
   PID: TProcessID;
   Deadline: QWord;
 begin
+  // Skip autopair in the IDE process. Pairing here would claim the JVM
+  // agent slot with the IDE's libremoteinput DLL instance; when a script
+  // subprocess later runs WaspLib's fakeinput.Setup, its Target.SetPlugin
+  // call (which is libremoteinput's second internal pair attempt) AVs
+  // against the IDE's claim. Net result: every first run after picking a
+  // target crashes. Trade-off: ACA / DTM editor / debug viewer in the
+  // IDE go back to BitBlt for GPU-rendered windows.
+  if SimbaProcessType = ESimbaProcessType.IDE then Exit;
+
   // Re-pair only when the window actually changes.
   if Window = PairedWindow then Exit;
 
