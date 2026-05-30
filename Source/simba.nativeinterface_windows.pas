@@ -311,21 +311,41 @@ begin
   ReleaseDC(Window, WindowDC);
 end;
 
+var
+  // Throttle for lazy WGC re-open (per GetWindowImage). Avoids re-running the
+  // full WinRT open/teardown every frame when a window stays uncapturable.
+  GWGCRetryTick: QWord = 0;
+  GWGCRetryWindow: TWindowHandle = 0;
+
 function TSimbaNativeInterface_Windows.GetWindowImage(Window: TWindowHandle; X, Y, Width, Height: Integer; var ImageData: PColorBGRA): Boolean;
 begin
   // Capture.Method: 0 = BitBlt, 1 = WGC (default). WGC reads GPU/OpenGL-rendered
   // windows but draws a yellow capture border on Win10 < 22H2; BitBlt has no
-  // border but freezes on GPU-rendered windows. In WGC mode, fall back to
-  // BitBlt if WGC produced nothing (e.g. pre-Win10 1803, or a window WGC can't
-  // open) so the user always gets a frame.
+  // border but freezes on GPU-rendered windows.
   if (SimbaSettings.Capture.Method.Value = 0) then
-    Result := GetWindowImageBitBlt(Window, X, Y, Width, Height, ImageData)
-  else
   begin
-    Result := WGCTryGetImage(Window, X, Y, Width, Height, ImageData);
-    if not Result then
-      Result := GetWindowImageBitBlt(Window, X, Y, Width, Height, ImageData);
+    Result := GetWindowImageBitBlt(Window, X, Y, Width, Height, ImageData);
+    Exit;
   end;
+
+  Result := WGCTryGetImage(Window, X, Y, Width, Height, ImageData);
+  if Result then
+    Exit;
+
+  // No live WGC frame: the session may never have opened (e.g. the target was
+  // mid-resize when it was selected). Retry the open on demand -- throttled to
+  // twice a second so a settled window self-heals without thrashing a window
+  // WGC genuinely can't capture. Falls back to BitBlt either way.
+  if (Window <> GWGCRetryWindow) or (GetTickCount64() - GWGCRetryTick > 500) then
+  begin
+    GWGCRetryWindow := Window;
+    GWGCRetryTick := GetTickCount64();
+    WGCAutoOpen(Window);
+    Result := WGCTryGetImage(Window, X, Y, Width, Height, ImageData);
+  end;
+
+  if not Result then
+    Result := GetWindowImageBitBlt(Window, X, Y, Width, Height, ImageData);
 end;
 
 procedure TSimbaNativeInterface_Windows.MouseUp(Button: EMouseButton);

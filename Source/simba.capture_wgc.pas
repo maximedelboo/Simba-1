@@ -1069,8 +1069,12 @@ begin
     InteropFactory := nil;
     if not Succeeded(HR) then
     begin
+      // Recoverable: CreateForWindow returns E_INVALIDARG while the target is
+      // transitioning (e.g. WaspLib resizing the client to fixed mode right
+      // after a script sets its target). Record it for WGCLastError but do
+      // NOT log -- GetWindowImage retries the open on demand and falls back
+      // to BitBlt meanwhile, so a loud error here is just noise.
       GWGCLastError := 'IGraphicsCaptureItemInterop.CreateForWindow failed: ' + WinRT_HRESULTToStr(HR);
-      WGCLogError(GWGCLastError);
       InternalTearDownSession();
       WinRT_Uninitialize();
       GCaptureWindow := 0;
