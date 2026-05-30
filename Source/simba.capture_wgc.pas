@@ -28,7 +28,7 @@ implementation
 
 uses
   Windows, syncobjs,
-  simba.winrt_helpers;
+  simba.winrt_helpers, simba.settings;
 
 const
   // Constants from d3dcommon.h, d3d11.h, dxgiformat.h.
@@ -908,6 +908,15 @@ var
   RootWindow:      TWindowHandle;
   InitOffX, InitOffY, InitUserW, InitUserH: Int32;
 begin
+  // Capture.Method 0 = BitBlt: don't open a WGC session at all (avoids the
+  // D3D device/frame-pool cost and the Win10 yellow capture border). Any
+  // prior session is released so switching to BitBlt at runtime takes effect.
+  if (SimbaSettings.Capture.Method.Value = 0) then
+  begin
+    WGCRelease();
+    Exit;
+  end;
+
   HadPrevSession := False;
   PrevSession    := nil;
   PrevFramePool  := nil;

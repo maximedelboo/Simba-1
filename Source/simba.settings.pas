@@ -167,6 +167,12 @@ type
       ShowHints: TSimbaSetting;
     end;
 
+    Capture: record
+      // 0 = BitBlt (GDI; cannot read GPU/OpenGL-rendered windows),
+      // 1 = WGC (Windows.Graphics.Capture; reads any presented frame, Win10 1803+).
+      Method: TSimbaSetting;
+    end;
+
     property FirstLaunch: Boolean read FFirstLaunch;
 
     class function GetINIFile: TINIFile;
@@ -554,6 +560,10 @@ begin
 
   // Compiler
   Compiler.ShowHints := TSimbaSetting_Boolean.Create(Self, 'Compiler', 'ShowHints', False);
+
+  // Capture method: default to WGC (1) so GPU/OpenGL-rendered windows
+  // (e.g. RuneLite with the GPU plugin) capture correctly out of the box.
+  Capture.Method := TSimbaSetting_Integer.Create(Self, 'Capture', 'Method', 1);
 end;
 
 destructor TSimbaSettings.Destroy;
